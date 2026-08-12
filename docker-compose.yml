@@ -1,0 +1,449 @@
+name: ${COMPOSE_PROJECT_NAME:-deliveryflow}
+
+services:
+  postgres-airflow:
+    image: ${POSTGRES_IMAGE}
+    container_name: deliveryflow-postgres-airflow
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      AIRFLOW_DB_NAME: ${AIRFLOW_DB_NAME}
+      AIRFLOW_DB_USER: ${AIRFLOW_DB_USER}
+      AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD}
+    ports:
+      - "${POSTGRES_AIRFLOW_PORT}:5432"
+    volumes:
+      - postgres-airflow-data:/var/lib/postgresql/data
+      - ./services/postgres/airflow-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - delivery-platform-net
+
+  postgres-source:
+    image: ${POSTGRES_IMAGE}
+    container_name: deliveryflow-postgres-source
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME}
+      SOURCE_DB_USER: ${SOURCE_DB_USER}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD}
+      NESSIE_DB_NAME: ${NESSIE_DB_NAME}
+      NESSIE_DB_USER: ${NESSIE_DB_USER}
+      NESSIE_DB_PASSWORD: ${NESSIE_DB_PASSWORD}
+    ports:
+      - "${POSTGRES_SOURCE_PORT}:5432"
+    volumes:
+      - postgres-source-data:/var/lib/postgresql/data
+      - ./services/postgres/source-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks:
+      - delivery-platform-net
+
+  kafka:
+    image: ${KAFKA_IMAGE}
+    container_name: deliveryflow-kafka
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_HOST_PORT}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS}
+      KAFKA_LOG_RETENTION_HOURS: 168
+    ports:
+      - "${KAFKA_HOST_PORT}:9094"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  kafka-init:
+    image: ${KAFKA_IMAGE}
+    container_name: deliveryflow-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic ${KAFKA_TOPIC_DELIVERY_EVENTS} --partitions ${KAFKA_TOPIC_PARTITIONS} --replication-factor ${KAFKA_TOPIC_REPLICATION_FACTOR}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic ${KAFKA_TOPIC_DELIVERY_EVENTS}
+    networks:
+      - delivery-platform-net
+
+  kafka-ui:
+    image: ${KAFKA_UI_IMAGE}
+    container_name: deliveryflow-kafka-ui
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_CLUSTERS_0_NAME: deliveryflow-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_READONLY: "false"
+      DYNAMIC_CONFIG_ENABLED: "false"
+    ports:
+      - "${KAFKA_UI_PORT}:8080"
+    networks:
+      - delivery-platform-net
+
+  minio:
+    image: ${MINIO_IMAGE}
+    container_name: deliveryflow-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_REGION_NAME: ${S3_REGION}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  minio-init:
+    image: ${MINIO_MC_IMAGE}
+    container_name: deliveryflow-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc version enable "local/$$S3_BUCKET"
+        mc ls "local/$$S3_BUCKET"
+    networks:
+      - delivery-platform-net
+
+  nessie:
+    image: ${NESSIE_IMAGE}
+    container_name: deliveryflow-nessie
+    depends_on:
+      postgres-source:
+        condition: service_healthy
+    environment:
+      QUARKUS_HTTP_PORT: 19120
+      QUARKUS_PROFILE: prod
+      NESSIE_VERSION_STORE_TYPE: JDBC2
+      NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE: postgresql
+      QUARKUS_DATASOURCE_POSTGRESQL_JDBC_URL: jdbc:postgresql://postgres-source:5432/${NESSIE_DB_NAME}
+      QUARKUS_DATASOURCE_POSTGRESQL_USERNAME: ${NESSIE_DB_USER}
+      QUARKUS_DATASOURCE_POSTGRESQL_PASSWORD: ${NESSIE_DB_PASSWORD}
+    ports:
+      - "${NESSIE_PORT}:19120"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:19120/api/v2/config >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: services/spark/Dockerfile
+      args:
+        SPARK_BASE_IMAGE: ${SPARK_BASE_IMAGE}
+    image: ${SPARK_IMAGE}
+    container_name: deliveryflow-spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+    ports:
+      - "${SPARK_MASTER_PORT}:7077"
+      - "${SPARK_MASTER_UI_PORT}:8080"
+    volumes:
+      - ./configs/spark:/opt/spark/conf:ro
+      - spark-work:/opt/spark/work
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  spark-worker:
+    image: ${SPARK_IMAGE}
+    container_name: deliveryflow-spark-worker
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077", "--cores", "${SPARK_WORKER_CORES}", "--memory", "${SPARK_WORKER_MEMORY}", "--webui-port", "8081"]
+    volumes:
+      - ./configs/spark:/opt/spark/conf:ro
+      - spark-work:/opt/spark/work
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'CoarseGrainedExecutorBackend|Worker' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  clickhouse:
+    image: ${CLICKHOUSE_IMAGE}
+    container_name: deliveryflow-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT}:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./services/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- 'http://localhost:8123/ping' | grep -q Ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: services/airflow/Dockerfile
+      args:
+        AIRFLOW_BASE_IMAGE: ${AIRFLOW_BASE_IMAGE}
+    image: ${AIRFLOW_IMAGE}
+    container_name: deliveryflow-airflow-init
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+    environment: &airflow-env
+      AIRFLOW__CORE__EXECUTOR: ${AIRFLOW_EXECUTOR}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+      AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER}:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/${AIRFLOW_DB_NAME}
+      AIRFLOW_CONN_SPARK_DEFAULT: spark://spark-master:7077
+      SPARK_CONF_DIR: /opt/airflow/spark-conf
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD}
+      AIRFLOW_ADMIN_EMAIL: ${AIRFLOW_ADMIN_EMAIL}
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      ICEBERG_WAREHOUSE: ${ICEBERG_WAREHOUSE}
+      NESSIE_URI: ${NESSIE_URI}
+      NESSIE_REF: ${NESSIE_REF}
+      ICEBERG_VERSION: ${ICEBERG_VERSION}
+      NESSIE_SPARK_EXTENSIONS_VERSION: ${NESSIE_SPARK_EXTENSIONS_VERSION}
+    user: "50000:0"
+    entrypoint: /bin/bash
+    command:
+      - -lc
+      - |
+        airflow db migrate
+        airflow users create --username "$$AIRFLOW_ADMIN_USER" --password "$$AIRFLOW_ADMIN_PASSWORD" --firstname Local --lastname Admin --role Admin --email "$$AIRFLOW_ADMIN_EMAIL" || true
+    volumes: &airflow-volumes
+      - ./dags:/opt/airflow/dags
+      - ./configs/spark:/opt/airflow/spark-conf:ro
+      - airflow-logs:/opt/airflow/logs
+    networks:
+      - delivery-platform-net
+
+  airflow-webserver:
+    image: ${AIRFLOW_IMAGE}
+    container_name: deliveryflow-airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    user: "50000:0"
+    command: webserver
+    ports:
+      - "${AIRFLOW_WEB_PORT}:8080"
+    volumes: *airflow-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type LocalTaskJob --hostname \"$$(hostname)\" >/dev/null 2>&1 || curl -fsS http://localhost:8080/health >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  airflow-scheduler:
+    image: ${AIRFLOW_IMAGE}
+    container_name: deliveryflow-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment: *airflow-env
+    user: "50000:0"
+    command: scheduler
+    volumes: *airflow-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$$(hostname)\""]
+      interval: 20s
+      timeout: 10s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  flink-jobmanager:
+    build:
+      context: .
+      dockerfile: services/flink/Dockerfile
+      args:
+        FLINK_BASE_IMAGE: ${FLINK_BASE_IMAGE}
+        FLINK_KAFKA_CONNECTOR_VERSION: ${FLINK_KAFKA_CONNECTOR_VERSION}
+    image: ${FLINK_IMAGE}
+    container_name: deliveryflow-flink-jobmanager
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        parallelism.default: ${FLINK_PARALLELISM}
+        state.backend: hashmap
+        execution.checkpointing.interval: 10000
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    ports:
+      - "${FLINK_UI_PORT}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/overview >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  flink-taskmanager:
+    image: ${FLINK_IMAGE}
+    container_name: deliveryflow-flink-taskmanager
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: ${FLINK_PARALLELISM}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f TaskManagerRunner >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    networks:
+      - delivery-platform-net
+
+  flink-job-submit:
+    image: ${FLINK_IMAGE}
+    container_name: deliveryflow-flink-job-submit
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    command: /opt/flink/bin/flink run -m flink-jobmanager:8081 -d /opt/flink/usrlib/delivery-flink-job.jar
+    networks:
+      - delivery-platform-net
+
+  producer:
+    build:
+      context: .
+      dockerfile: services/kafka/producer.Dockerfile
+    image: ${PRODUCER_IMAGE}
+    container_name: deliveryflow-producer
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
+      PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
+    networks:
+      - delivery-platform-net
+
+networks:
+  delivery-platform-net:
+    name: deliveryflow-platform-net
+    driver: bridge
+
+volumes:
+  postgres-airflow-data:
+  postgres-source-data:
+  kafka-data:
+  minio-data:
+  spark-work:
+  clickhouse-data:
+  airflow-logs:

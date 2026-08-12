@@ -1,0 +1,27 @@
+# Local development secrets and runtime state
+.env
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Data/runtime artifacts
+data/
+logs/
+tmp/
+
+# IDE/editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
