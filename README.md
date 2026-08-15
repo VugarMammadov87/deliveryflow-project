@@ -1,53 +1,85 @@
 # DeliveryFlow Local Data Platform
 
-DeliveryFlow is a local Docker Compose data platform for real-time delivery monitoring and daily transportation analytics. It demonstrates a practical logistics data engineering architecture with streaming ingestion, real-time operational serving, lakehouse storage, daily batch processing, orchestration, and BI-ready outputs.
+DeliveryFlow lokal Docker Compose üzərində qurulmuş data engineering layihəsidir. Layihə logistika domenində həm real-time delivery monitoring, həm də gündəlik batch analytics proseslərini göstərir.
 
-The project is designed for local development and learning, while still applying production-oriented data engineering principles such as versioned event contracts, service health checks, isolated metadata databases, replayable storage, explicit orchestration, and pinned infrastructure versions.
+Bu README layihəyə ilk dəfə baxan biri üçün yazılıb: haradan başlamaq lazımdır, hansı servis nə edir, `make` komandaları hansı ardıcıllıqla işlədilir və pipeline-lar necə yoxlanılır.
 
-## What This Project Does
+## Qısa Xülasə
 
-DeliveryFlow models a transportation company that needs to monitor active deliveries and analyze daily delivery performance.
+Layihədə iki əsas data axını var:
 
-The platform supports these core workflows:
+- **Stream pipeline**: `Producer -> Kafka -> Flink -> ClickHouse -> Superset`
+- **Batch pipeline**: `ClickHouse/PostgreSQL -> Spark -> Iceberg/Nessie/MinIO -> ClickHouse -> Superset`
 
-- Generate synthetic logistics events.
-- Publish versioned JSON delivery events to Kafka.
-- Process delivery events with Flink in near real time.
-- Store operational history and current state in ClickHouse.
-- Run daily KPI processing with Spark.
-- Write analytical tables to Apache Iceberg through Nessie.
-- Store Iceberg data and metadata files in MinIO.
-- Publish BI-facing KPI output back to ClickHouse.
-- Orchestrate daily Spark processing through Airflow.
+Əsas servis rolları:
 
-## Architecture Diagram
+- **Kafka** event transport qatıdır.
+- **Flink** real-time stream processing edir.
+- **ClickHouse** operational və BI serving database-dir.
+- **Spark** batch KPI hesablayır.
+- **Iceberg** analytical table format verir.
+- **Nessie** Iceberg catalog-dur.
+- **MinIO** lokal S3-compatible object storage-dur.
+- **Airflow** batch job orchestration edir.
+- **PostgreSQL** Airflow, Nessie və source metadata saxlayır.
+- **Superset** dashboard və reporting qatıdır.
+
+## Haradan Başlamaq Lazımdır?
+
+Əgər layihəni ilk dəfə açırsansa, bu ardıcıllıqla get:
+
+1. Repo root folder-də olduğunu yoxla.
+2. `.env.example` faylından `.env` yarat.
+3. Docker Compose config-i validate et.
+4. Platformanı qaldır.
+5. Servislərin health vəziyyətinə bax.
+6. Flink stream job-u submit et.
+7. Synthetic data yarat.
+8. ClickHouse-da stream nəticələrini yoxla.
+9. Spark batch KPI job-u işlət.
+10. Superset-də report view-ları dashboard üçün istifadə et.
+
+Əsas command axını:
+
+```powershell
+Copy-Item .env.example .env
+make config
+make up
+make health
+make submit-flink-job
+make produce
+make spark-daily-kpi
+make console
+```
+
+## Arxitektura Diaqramı
 
 ```mermaid
 flowchart LR
     producer["Synthetic Logistics Producer<br/>Python"]
+    postgres["PostgreSQL<br/>Source Tables"]
     kafka["Kafka<br/>delivery-events topic"]
     flink["Flink DataStream Job<br/>Java"]
-    clickhouse["ClickHouse<br/>Operational Serving"]
+    clickhouse["ClickHouse<br/>Serving Layer"]
     spark["Spark Daily KPI Job<br/>PySpark"]
-    minio["MinIO<br/>S3-compatible Storage"]
-    nessie["Nessie<br/>Iceberg Catalog"]
     iceberg["Apache Iceberg Tables<br/>bronze / gold"]
-    airflow["Airflow<br/>Daily Orchestration"]
-    powerbi["Power BI<br/>External BI Client"]
+    nessie["Nessie<br/>Iceberg Catalog"]
+    minio["MinIO<br/>S3-compatible Storage"]
+    airflow["Airflow<br/>Batch Orchestration"]
+    superset["Superset<br/>BI Dashboards"]
 
-    producer --> kafka
+    producer -->|batch seed| postgres
+    producer -->|stream events| kafka
     kafka --> flink
     flink --> clickhouse
-    clickhouse --> spark
     airflow --> spark
+    clickhouse --> spark
     spark --> iceberg
     iceberg --> nessie
     iceberg --> minio
     spark --> clickhouse
-    clickhouse --> powerbi
+    clickhouse --> superset
 ```
-
-Airflow is not part of the streaming path. Its responsibility is orchestration for scheduled batch workflows, especially the daily Spark KPI job.
 
 ## Runtime Service Map
 
@@ -56,111 +88,57 @@ flowchart TB
     subgraph compose["Docker Compose: deliveryflow"]
         subgraph streaming["Streaming Layer"]
             kafka["Kafka Broker"]
-            kafka_ui["Kafka UI"]
+            kafkaUi["Kafka UI"]
             producer["Producer Container"]
-            flink_jm["Flink JobManager"]
-            flink_tm["Flink TaskManager"]
-            flink_submit["Flink Job Submitter"]
+            flinkJm["Flink JobManager"]
+            flinkTm["Flink TaskManager"]
+            flinkSubmit["Flink Job Submitter"]
         end
 
         subgraph serving["Serving Layer"]
             clickhouse["ClickHouse"]
+            superset["Superset"]
         end
 
         subgraph lakehouse["Lakehouse Layer"]
+            sparkMaster["Spark Master"]
+            sparkWorker["Spark Worker"]
             minio["MinIO"]
-            minio_init["MinIO Init"]
+            minioInit["MinIO Init"]
             nessie["Nessie"]
-            spark_master["Spark Master"]
-            spark_worker["Spark Worker"]
         end
 
         subgraph orchestration["Orchestration Layer"]
-            airflow_db["PostgreSQL<br/>Airflow Metadata"]
-            airflow_init["Airflow Init"]
-            airflow_web["Airflow Webserver"]
-            airflow_scheduler["Airflow Scheduler"]
+            airflowDb["PostgreSQL<br/>Airflow Metadata"]
+            airflowInit["Airflow Init"]
+            airflowWeb["Airflow Webserver"]
+            airflowScheduler["Airflow Scheduler"]
         end
 
-        subgraph metadata["Source and Catalog Metadata"]
-            source_db["PostgreSQL<br/>Source + Nessie Metadata"]
+        subgraph source["Source / Catalog Metadata"]
+            postgresSource["PostgreSQL<br/>Source + Nessie Metadata"]
         end
     end
 
-    kafka --> kafka_ui
-    kafka --> flink_jm
-    flink_jm --> flink_tm
-    flink_submit --> flink_jm
     producer --> kafka
-    flink_jm --> clickhouse
-    spark_master --> spark_worker
-    spark_master --> clickhouse
-    spark_master --> minio
-    spark_master --> nessie
-    nessie --> source_db
-    airflow_web --> airflow_db
-    airflow_scheduler --> airflow_db
-    airflow_scheduler --> spark_master
-    minio_init --> minio
-    airflow_init --> airflow_db
+    producer --> postgresSource
+    kafka --> kafkaUi
+    kafka --> flinkJm
+    flinkJm --> flinkTm
+    flinkSubmit --> flinkJm
+    flinkJm --> clickhouse
+    superset --> clickhouse
+    airflowScheduler --> sparkMaster
+    sparkMaster --> sparkWorker
+    sparkMaster --> clickhouse
+    sparkMaster --> minio
+    sparkMaster --> nessie
+    nessie --> postgresSource
+    airflowWeb --> airflowDb
+    airflowScheduler --> airflowDb
+    minioInit --> minio
+    airflowInit --> airflowDb
 ```
-
-## Data Flow
-
-### Streaming Flow
-
-```mermaid
-sequenceDiagram
-    participant Producer as Synthetic Producer
-    participant Kafka as Kafka delivery-events
-    participant Flink as Flink Streaming Job
-    participant CH as ClickHouse
-
-    Producer->>Kafka: Publish JSON event keyed by delivery_id
-    Kafka->>Flink: Consume event from delivery-events
-    Flink->>Flink: Parse and validate schema_version = 1
-    Flink->>Flink: Key stream by delivery_id
-    Flink->>CH: Insert into delivery_events
-    Flink->>CH: Upsert-like insert into delivery_current_state
-    Flink->>CH: Upsert-like insert into vehicle_current_state
-```
-
-### Batch Flow
-
-```mermaid
-sequenceDiagram
-    participant Airflow as Airflow DAG
-    participant CH as ClickHouse
-    participant Spark as Spark Daily KPI Job
-    participant Iceberg as Iceberg Tables
-    participant Nessie as Nessie Catalog
-    participant MinIO as MinIO Storage
-
-    Airflow->>CH: Check delivery_events readiness
-    Airflow->>Spark: Submit daily_kpi_job.py
-    Spark->>CH: Read delivery.delivery_events over JDBC
-    Spark->>Spark: Build daily delivery KPIs
-    Spark->>Iceberg: Write bronze.raw_delivery_events
-    Spark->>Iceberg: Write gold.daily_delivery_kpi
-    Iceberg->>Nessie: Commit table metadata reference
-    Iceberg->>MinIO: Store data and metadata files
-    Spark->>CH: Publish daily_delivery_kpi
-```
-
-## Technology Stack
-
-- **Docker Compose** starts and wires the full local platform.
-- **Apache Kafka** transports versioned JSON logistics events.
-- **Kafka UI** provides a browser interface for local Kafka topics.
-- **Apache Flink** processes streaming events and writes operational state.
-- **ClickHouse** stores event history, current state, and BI-facing KPI tables.
-- **Apache Spark** performs batch computation with PySpark application files.
-- **Apache Iceberg** provides analytical table format semantics.
-- **Nessie** acts as the Iceberg catalog.
-- **MinIO** provides S3-compatible local object storage.
-- **PostgreSQL** stores Airflow metadata and Nessie/source metadata.
-- **Apache Airflow** orchestrates scheduled batch workflows.
-- **Power BI** connects externally to ClickHouse for reporting.
 
 ## Repository Structure
 
@@ -173,7 +151,9 @@ sequenceDiagram
 |   `-- delivery_daily_kpi.py
 |-- docs/
 |   |-- architecture-decisions.md
-|   `-- power-bi.md
+|   |-- application-workflow.md
+|   |-- postgres-source-tables.md
+|   `-- superset-serving.md
 |-- scripts/
 |   |-- e2e_smoke_test.py
 |   `-- health_check.py
@@ -183,7 +163,8 @@ sequenceDiagram
 |   |-- flink/
 |   |-- kafka/
 |   |-- postgres/
-|   `-- spark/
+|   |-- spark/
+|   `-- superset/
 |-- src/
 |   |-- contracts/
 |   |   `-- delivery_event_v1.schema.json
@@ -202,169 +183,147 @@ sequenceDiagram
 `-- plan.md
 ```
 
-## Key Components
+## Prerequisites
 
-### Event Producer
-
-`src/producers/synthetic_logistics_producer.py` generates synthetic delivery events and publishes them to Kafka.
-
-Each event includes fields such as:
-
-- `schema_version`
-- `event_id`
-- `event_type`
-- `event_timestamp`
-- `delivery_id`
-- `vehicle_id`
-- `driver_id`
-- `warehouse_id`
-- `route_id`
-- `payload.status`
-- `payload.latitude`
-- `payload.longitude`
-- `payload.delay_minutes`
-- `payload.capacity_used`
-- `payload.capacity_total`
-
-Initial event types:
-
-- `ORDER_LOADED`
-- `VEHICLE_DEPARTED`
-- `IN_TRANSIT`
-- `DELIVERY_DELAYED`
-- `DELIVERED`
-
-### Event Contract
-
-The versioned JSON contract is defined in:
-
-```text
-src/contracts/delivery_event_v1.schema.json
-```
-
-The current test suite checks that generated synthetic events follow the main expectations of this contract.
-
-### Flink Streaming Job
-
-The Flink job lives under:
-
-```text
-services/flink/src/main/java/local/deliveryflow/
-```
-
-Main responsibilities:
-
-- Read from Kafka topic `delivery-events`.
-- Parse JSON delivery events.
-- Validate required version 1 fields.
-- Key the stream by `delivery_id`.
-- Write event history and current-state records to ClickHouse.
-
-The job enables checkpointing with `AT_LEAST_ONCE` semantics. The local ClickHouse sink uses simple HTTP inserts, which is appropriate for the current bootstrap scope.
-
-### ClickHouse Tables
-
-ClickHouse initialization is defined in:
-
-```text
-services/clickhouse/init/001_delivery_schema.sql
-```
-
-Main tables:
-
-- `delivery.delivery_events` stores event history.
-- `delivery.delivery_current_state` stores the latest delivery state.
-- `delivery.vehicle_current_state` stores the latest vehicle state.
-- `delivery.daily_delivery_kpi` stores BI-facing daily KPI output.
-
-### Spark Batch Jobs
-
-Spark application files live in:
-
-```text
-src/etl/apps/
-```
-
-Current jobs:
-
-- `iceberg_smoke_test.py` validates Spark -> Nessie -> Iceberg -> MinIO connectivity.
-- `daily_kpi_job.py` reads delivery events from ClickHouse, computes daily KPIs, writes Iceberg tables, and publishes KPI output to ClickHouse.
-
-The daily KPI job calculates:
-
-- completed deliveries
-- delayed deliveries
-- on-time deliveries
-- delay rate
-- on-time rate
-- average delay minutes
-- average vehicle utilization
-
-### Airflow DAG
-
-The Airflow DAG is defined in:
-
-```text
-dags/delivery_daily_kpi.py
-```
-
-It contains two tasks:
-
-1. `check_source_readiness` checks whether `delivery_events` has data.
-2. `run_spark_daily_batch` submits the Spark daily KPI job.
-
-The DAG is scheduled with `@daily` and uses `catchup=False`.
-
-## Quick Start
-
-### Prerequisites
-
-Install or enable:
+Lokal işlətmək üçün lazımdır:
 
 - Docker Desktop
 - Docker Compose v2
 - `make`
-- Enough local RAM and disk for multiple data services
+- Git
+- Kifayət qədər RAM və disk
 
-### Configure Environment
+Port conflict olarsa `.env` içində portları dəyişmək olar. Ən çox konflikt yaradan portlar:
 
-Copy the example environment file:
+- `AIRFLOW_WEB_PORT=8080`
+- `FLINK_UI_PORT=8081`
+- `SPARK_MASTER_UI_PORT=8082`
+- `KAFKA_UI_PORT=8083`
+- `SUPERSET_PORT=8088`
+- `POSTGRES_AIRFLOW_PORT=15432`
+- `POSTGRES_SOURCE_PORT=15433`
+
+## Addım 1: Environment Faylını Hazırla
+
+İlk dəfə başlamazdan əvvəl:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-The checked-in `.env.example` contains local development values only. Do not commit production credentials.
+`.env` faylı Docker Compose üçün bütün local config-ləri saxlayır:
 
-### Start the Platform
+- image adları
+- portlar
+- database adları
+- local user/password dəyərləri
+- Kafka topic adı
+- producer parametrləri
+- Superset parametrləri
 
-Validate Compose configuration:
+`.env` git-ə commit edilməməlidir.
+
+## Addım 2: Compose Config-i Validate Et
+
+Platformanı qaldırmazdan əvvəl:
 
 ```powershell
 make config
 ```
 
-Start the local platform:
+Bu command əslində bunu işlədir:
+
+```text
+docker compose config
+```
+
+Nə üçün lazımdır:
+
+- `.env` dəyərləri düzgün oxunurmu?
+- `docker-compose.yml` sintaksisi doğrudurmu?
+- volume, port, service və environment mapping-lərində səhv varmı?
+
+Əgər burada error varsa, `make up` etməzdən əvvəl düzəltmək lazımdır.
+
+## Addım 3: Platformanı Qaldır
+
+Əsas start command:
 
 ```powershell
 make up
 ```
 
-### Check Service Health
+Bu command aşağıdakı servisləri build və start edir:
+
+- `postgres-airflow`
+- `postgres-source`
+- `kafka`
+- `kafka-init`
+- `kafka-ui`
+- `minio`
+- `minio-init`
+- `nessie`
+- `spark-master`
+- `spark-worker`
+- `clickhouse`
+- `superset`
+- `airflow-init`
+- `airflow-webserver`
+- `airflow-scheduler`
+- `flink-jobmanager`
+- `flink-taskmanager`
+
+İlk start zamanı image build və pull səbəbindən proses uzun çəkə bilər.
+
+## Addım 4: Servis Statusuna Bax
+
+Container status:
+
+```powershell
+make ps
+```
+
+və ya:
+
+```powershell
+make status
+```
+
+Bu command `docker compose ps` işlədir.
+
+Health check:
 
 ```powershell
 make health
 ```
 
-This runs non-destructive readiness checks for Kafka, PostgreSQL, MinIO, Nessie, Spark, ClickHouse, Flink, and Airflow.
+Bu command producer container içindən `scripts/health_check.py` scriptini işlədir və əsas servisləri yoxlayır:
 
-### Show Local Endpoints
+- Kafka
+- PostgreSQL
+- MinIO
+- Nessie
+- Spark
+- ClickHouse
+- Superset
+- Flink
+- Airflow
+
+## Addım 5: URL-ləri Götür
+
+Bütün endpoint-ləri görmək üçün:
 
 ```powershell
 make console
 ```
 
-Common local URLs:
+Yalnız browser URL-ləri üçün:
+
+```powershell
+make urls
+```
+
+Əsas URL-lər:
 
 ```text
 Kafka UI:      http://localhost:8083
@@ -372,95 +331,358 @@ Flink UI:      http://localhost:8081
 Spark UI:      http://localhost:8082
 Airflow UI:    http://localhost:8080
 ClickHouse:    http://localhost:8123
+Superset:      http://localhost:8088
 Nessie API:    http://localhost:19120/api/v2
 MinIO API:     http://localhost:9000
 MinIO Console: http://localhost:9001
 ```
 
-The default local Airflow login in `.env.example` is `admin/admin`.
+Default local login:
 
-## Main Workflows
+```text
+Airflow:  admin / admin
+Superset: admin / admin
+```
 
-### Run the Streaming Pipeline
+## Addım 6: Stream Pipeline-ı İşlət
 
-Submit the Flink job:
+Stream pipeline:
+
+```text
+Producer -> Kafka -> Flink -> ClickHouse
+```
+
+```mermaid
+sequenceDiagram
+    participant P as Producer
+    participant K as Kafka
+    participant F as Flink
+    participant C as ClickHouse
+
+    P->>K: delivery event publish edilir
+    K->>F: Flink event consume edir
+    F->>F: JSON parse və schema validation
+    F->>C: delivery_events yazılır
+    F->>C: delivery_current_state yazılır
+    F->>C: vehicle_current_state yazılır
+```
+
+Əvvəl Flink job-u submit et:
 
 ```powershell
 make submit-flink-job
 ```
 
-Produce synthetic delivery events:
+Sonra data yarat:
 
 ```powershell
 make produce
 ```
 
-Expected result:
+`make produce` default olaraq həm batch source data yaradır, həm də Kafka stream event-ləri publish edir.
 
-- Kafka receives events in the `delivery-events` topic.
-- Flink consumes and processes those events.
-- ClickHouse receives rows in `delivery_events`, `delivery_current_state`, and `vehicle_current_state`.
+Yalnız stream event yaratmaq istəyirsənsə:
 
-### Validate Iceberg Connectivity
+```powershell
+make produce-stream
+```
+
+Nəticəni ClickHouse-da yoxlamaq:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_events"
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_current_state"
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.vehicle_current_state"
+```
+
+## Addım 7: Batch Source Data Yarat
+
+PostgreSQL source cədvəllərini ayrıca seed etmək üçün:
+
+```powershell
+make seed-batch-source
+```
+
+Bu command `PRODUCER_MODE=batch` ilə generator app-i işlədir.
+
+PostgreSQL source cədvəllərinə baxmaq:
+
+```powershell
+docker compose exec postgres-source psql -U postgres -d logistics_source -c "\dt"
+```
+
+Order sample:
+
+```powershell
+docker compose exec postgres-source psql -U postgres -d logistics_source -c "SELECT order_id, customer_region, service_level, priority, package_count, order_value FROM customer_orders LIMIT 10;"
+```
+
+Bu cədvəllər haqqında geniş izah:
+
+```text
+docs/postgres-source-tables.md
+```
+
+## Addım 8: Iceberg Connectivity Test Et
+
+Spark, Nessie, Iceberg və MinIO birlikdə düzgün işləyirmi yoxlamaq üçün:
 
 ```powershell
 make spark-iceberg-test
 ```
 
-Expected success marker:
+Uğurlu nəticədə gözlənən marker:
 
 ```text
 ICEBERG_SMOKE_TEST_OK
 ```
 
-### Run Daily KPI Processing
+Bu test nəyi yoxlayır:
 
-After delivery events exist in ClickHouse:
+- Spark session açılır.
+- Nessie catalog-a qoşulur.
+- Iceberg namespace/table əməliyyatları işləyir.
+- MinIO warehouse path istifadə olunur.
+
+## Addım 9: Batch KPI Job İşlət
+
+Daily KPI job:
 
 ```powershell
 make spark-daily-kpi
 ```
 
-Expected result:
+Bu command `spark-master` container içində `spark-submit` işlədir. Bu ona görə belə qurulub ki, Spark job Spark image-in öz classpath-i, `spark-defaults.conf` faylı və `/opt/deliveryflow/src/etl/apps/` içindəki app faylları ilə işləsin.
 
-- Iceberg bronze and gold tables are created or refreshed.
-- ClickHouse receives KPI rows in `daily_delivery_kpi`.
-- The job prints `DAILY_KPI_JOB_OK`.
+```text
+/opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
+```
 
-### Run End-to-End Smoke Test
+Batch flow:
+
+```mermaid
+sequenceDiagram
+    participant C as ClickHouse
+    participant S as Spark
+    participant I as Iceberg
+    participant N as Nessie
+    participant M as MinIO
+    participant BI as Superset
+
+    S->>C: delivery.delivery_events oxuyur
+    S->>S: KPI hesablayır
+    S->>I: bronze.raw_delivery_events yazır
+    S->>I: gold.daily_delivery_kpi yazır
+    I->>N: table metadata commit
+    I->>M: data və metadata files
+    S->>C: delivery.daily_delivery_kpi publish edir
+    BI->>C: dashboard data oxuyur
+```
+
+Uğurlu nəticədə gözlənən marker:
+
+```text
+DAILY_KPI_JOB_OK
+```
+
+KPI nəticəsini yoxlamaq:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SELECT * FROM delivery.daily_delivery_kpi LIMIT 10"
+```
+
+## Addım 10: Superset Dashboard Üçün Data Mənbələri
+
+Superset URL:
+
+```text
+http://localhost:8088
+```
+
+ClickHouse connection URI:
+
+```text
+clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
+```
+
+Dashboard üçün hazır view-lar:
+
+- `delivery.v_delivery_status_overview`
+- `delivery.v_delay_by_region`
+- `delivery.v_vehicle_utilization`
+- `delivery.v_warehouse_daily_kpi`
+- `delivery.v_delivery_event_volume`
+
+View-ları yoxlamaq:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
+```
+
+Report və chart izahları:
+
+```text
+docs/superset-serving.md
+```
+
+## Addım 11: End-to-End Smoke Test
+
+Stream path üçün smoke test:
 
 ```powershell
 make test-e2e
 ```
 
-This produces events, waits for ClickHouse rows, and verifies that the streaming path is working.
+Bu command:
 
-## Make Commands
+- producer ilə synthetic event yaradır
+- ClickHouse-da `delivery_events` row gözləyir
+- `delivery_current_state` row gözləyir
+- stream path-in işlədiyini təsdiqləyir
+
+Gözlənən marker:
 
 ```text
-make help                Show available commands
-make config              Validate Docker Compose configuration
-make build               Build local Airflow, Flink, Spark, and producer images
-make pull                Pull pinned upstream images
-make up                  Start the full local platform
-make down                Stop containers and preserve named volumes
-make clean               Remove project containers and orphans, preserving named volumes
-make restart             Restart containers
-make ps                  Show container status
-make health              Run readiness checks
-make console             Print service endpoints
-make urls                Print browser URLs
-make submit-flink-job    Submit the Flink streaming job
-make produce             Generate synthetic delivery events
-make spark-iceberg-test  Validate Spark/Nessie/Iceberg/MinIO
-make spark-daily-kpi     Run daily KPI Spark processing
-make airflow-dag-list    List Airflow DAGs
-make test-e2e            Run local end-to-end smoke test
+STREAMING_E2E_OK
 ```
 
-Log commands:
+## Make Komandalarının Praktik İstifadəsi
 
-```text
+### `make help`
+
+Layihədə mövcud make command-larını göstərir.
+
+```powershell
+make help
+```
+
+### `make config`
+
+Docker Compose config-i validate edir. `.env` və `docker-compose.yml` dəyişəndən sonra işlət.
+
+```powershell
+make config
+```
+
+### `make pull`
+
+Pinned upstream image-ləri pull edir. İlk setup və ya image cache köhnə olanda faydalıdır.
+
+```powershell
+make pull
+```
+
+### `make build`
+
+Local image-ləri build edir: Spark, Airflow, Flink, Producer və Superset.
+
+```powershell
+make build
+```
+
+### `make up`
+
+Full local platformanı başladır.
+
+```powershell
+make up
+```
+
+### `make ps` və `make status`
+
+Container-lərin statusunu göstərir.
+
+```powershell
+make ps
+make status
+```
+
+### `make health`
+
+Əsas servislərin readiness vəziyyətini yoxlayır.
+
+```powershell
+make health
+```
+
+### `make console` və `make urls`
+
+Servis endpoint-lərini göstərir.
+
+```powershell
+make console
+make urls
+```
+
+### `make submit-flink-job`
+
+Flink streaming job-u submit edir. Kafka event-ləri generate etməzdən əvvəl işlətmək lazımdır.
+
+```powershell
+make submit-flink-job
+```
+
+### `make produce`
+
+Default generator mode ilə həm PostgreSQL batch source row-ları yaradır, həm də Kafka stream event-ləri publish edir.
+
+```powershell
+make produce
+```
+
+### `make produce-stream`
+
+Yalnız Kafka stream event-ləri yaradır.
+
+```powershell
+make produce-stream
+```
+
+### `make seed-batch-source`
+
+Yalnız PostgreSQL source cədvəllərini seed edir.
+
+```powershell
+make seed-batch-source
+```
+
+### `make spark-iceberg-test`
+
+Spark, Iceberg, Nessie və MinIO bağlantısını smoke test edir.
+
+```powershell
+make spark-iceberg-test
+```
+
+### `make spark-daily-kpi`
+
+Daily KPI batch job-u işlədir. ClickHouse-da `delivery_events` data-sı olduqdan sonra işlət.
+
+```powershell
+make spark-daily-kpi
+```
+
+### `make airflow-dag-list`
+
+Airflow daxilində DAG siyahısını göstərir.
+
+```powershell
+make airflow-dag-list
+```
+
+### `make test-e2e`
+
+Stream path üçün end-to-end smoke test edir.
+
+```powershell
+make test-e2e
+```
+
+### Log Command-ları
+
+Servis log-larını izləmək üçün:
+
+```powershell
 make logs
 make logs-kafka
 make logs-kafka-ui
@@ -468,85 +690,126 @@ make logs-flink
 make logs-spark
 make logs-airflow
 make logs-clickhouse
+make logs-superset
 make logs-postgres
 make logs-storage
 make logs-nessie
 ```
 
-## Configuration
+### `make down`
 
-Configuration is loaded from `.env`. The example file provides local-only development values.
-
-Important ports:
-
-- `KAFKA_HOST_PORT=9092`
-- `KAFKA_UI_PORT=8083`
-- `FLINK_UI_PORT=8081`
-- `SPARK_MASTER_UI_PORT=8082`
-- `AIRFLOW_WEB_PORT=8080`
-- `CLICKHOUSE_HTTP_PORT=8123`
-- `CLICKHOUSE_NATIVE_PORT=9009`
-- `NESSIE_PORT=19120`
-- `MINIO_API_PORT=9000`
-- `MINIO_CONSOLE_PORT=9001`
-
-If a port is already used on the host machine, change the corresponding value in `.env`.
-
-## Tests
-
-Run Python tests:
-
-```powershell
-pytest tests
-```
-
-The current test verifies that the synthetic producer creates events matching the main expectations of the versioned delivery event contract.
-
-## Power BI
-
-Power BI is not containerized. It connects from the host machine to ClickHouse.
-
-Connection details:
-
-```text
-HTTP endpoint:   http://localhost:8123
-Native endpoint: localhost:9009
-Database:        delivery
-```
-
-Recommended reporting tables:
-
-- `delivery_events`
-- `delivery_current_state`
-- `vehicle_current_state`
-- `daily_delivery_kpi`
-
-See `docs/power-bi.md` for additional BI notes.
-
-## Stop the Platform
+Container-ləri stop edir, amma named volume-ları saxlayır.
 
 ```powershell
 make down
 ```
 
-This stops containers and preserves named volumes. Kafka, PostgreSQL, MinIO, ClickHouse, Spark work data, and Airflow logs are not deleted by this command.
+### `make clean`
 
-## Important Notes
+Container-ləri və orphan container-ləri silir, amma named volume-ları saxlayır.
 
-- This project is intended for local development and learning.
-- `.env` is ignored by git and must not contain production secrets.
-- `make down` preserves named volumes.
-- The default Makefile intentionally does not provide a volume-deleting reset target.
-- Flink owns real-time processing.
-- Spark owns batch analytics.
-- Airflow owns batch orchestration.
-- ClickHouse is the operational and BI-facing serving layer.
-- MinIO stores Iceberg data and metadata files.
-- Nessie is the Iceberg catalog, not the data lake itself.
+```powershell
+make clean
+```
 
-## Additional Documentation
+### `make purge`
 
-- `requirement.md` contains the broad business, architecture, and engineering specification.
-- `plan.md` contains the project plan.
-- `docs/architecture-decisions.md` records important technical decisions and pinned versions.
-- `docs/power-bi.md` contains Power BI connection and reporting notes.
+Destructive cleanup edir:
+
+- container-ləri silir
+- named volume-ları silir
+- local project image-ləri silir
+- orphan container-ləri silir
+
+```powershell
+make purge
+```
+
+Diqqət: `make purge` lokal data-nı silir.
+
+## Tövsiyə Edilən Tam Demo Ardıcıllığı
+
+Sıfırdan demo üçün:
+
+```powershell
+Copy-Item .env.example .env
+make config
+make up
+make ps
+make health
+make submit-flink-job
+make produce
+make spark-iceberg-test
+make spark-daily-kpi
+make console
+```
+
+Sonra browser-də aç:
+
+- Kafka UI: `http://localhost:8083`
+- Flink UI: `http://localhost:8081`
+- Spark UI: `http://localhost:8082`
+- Airflow UI: `http://localhost:8080`
+- Superset UI: `http://localhost:8088`
+
+## Debug Workflow
+
+Əgər data ClickHouse-a gəlmirsə:
+
+1. Kafka log-larına bax:
+
+```powershell
+make logs-kafka
+```
+
+2. Flink job log-larına bax:
+
+```powershell
+make logs-flink
+```
+
+3. Stream event yarat:
+
+```powershell
+make produce-stream
+```
+
+4. ClickHouse row count yoxla:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_events"
+```
+
+Əgər Superset view-ları görünmürsə:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
+```
+
+Əgər yeni schema görünmürsə, köhnə volume qalır. Lokal data-nı silmək qəbul edilirsə:
+
+```powershell
+make purge
+make up
+```
+
+## Əlavə Sənədlər
+
+Daha dərin oxumaq üçün:
+
+- `docs/application-workflow.md`: app, generator, stream və batch workflow.
+- `docs/postgres-source-tables.md`: PostgreSQL source cədvəlləri və inspect command-ları.
+- `docs/superset-serving.md`: Superset dashboard strategy və 5 report.
+- `docs/architecture-decisions.md`: servis seçimləri və ADR-lər.
+- `requirement.md`: ümumi requirement.
+- `plan.md`: layihə planı.
+
+## Vacib Qeydlər
+
+- Streaming üçün Flink job əvvəl submit edilməlidir, sonra event generate etmək daha düzgündür.
+- Batch KPI üçün ClickHouse-da `delivery_events` data-sı olmalıdır.
+- Superset üçün approved data source ClickHouse-dur.
+- Kafka analytical database deyil, event transport qatıdır.
+- Iceberg/Nessie/MinIO analytical lakehouse qatıdır.
+- `make clean` data volume-ları silmir.
+- `make purge` data volume-ları silir.

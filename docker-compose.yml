@@ -188,6 +188,7 @@ services:
         SPARK_BASE_IMAGE: ${SPARK_BASE_IMAGE}
     image: ${SPARK_IMAGE}
     container_name: deliveryflow-spark-master
+    user: "0:0"
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
     ports:
       - "${SPARK_MASTER_PORT}:7077"
@@ -206,6 +207,7 @@ services:
   spark-worker:
     image: ${SPARK_IMAGE}
     container_name: deliveryflow-spark-worker
+    user: "0:0"
     depends_on:
       spark-master:
         condition: service_healthy
@@ -244,6 +246,43 @@ services:
       interval: 10s
       timeout: 5s
       retries: 18
+    networks:
+      - delivery-platform-net
+
+  superset:
+    build:
+      context: .
+      dockerfile: services/superset/Dockerfile
+      args:
+        SUPERSET_BASE_IMAGE: ${SUPERSET_BASE_IMAGE}
+    image: ${SUPERSET_IMAGE}
+    container_name: deliveryflow-superset
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY}
+      SUPERSET_LOAD_EXAMPLES: "no"
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD}
+      SUPERSET_ADMIN_EMAIL: ${SUPERSET_ADMIN_EMAIL}
+    command:
+      - /bin/bash
+      - -lc
+      - |
+        superset db upgrade
+        superset fab create-admin --username "$$SUPERSET_ADMIN_USER" --firstname Local --lastname Admin --email "$$SUPERSET_ADMIN_EMAIL" --password "$$SUPERSET_ADMIN_PASSWORD" || true
+        superset init
+        superset run -h 0.0.0.0 -p 8088
+    ports:
+      - "${SUPERSET_PORT}:8088"
+    volumes:
+      - superset-home:/app/superset_home
     networks:
       - delivery-platform-net
 
@@ -426,11 +465,20 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      postgres-source:
+        condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
       PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
       PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
+      PRODUCER_MODE: ${PRODUCER_MODE}
+      PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
+      SOURCE_DB_HOST: postgres-source
+      SOURCE_DB_PORT: 5432
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME}
+      SOURCE_DB_USER: ${SOURCE_DB_USER}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD}
     networks:
       - delivery-platform-net
 
@@ -446,4 +494,5 @@ volumes:
   minio-data:
   spark-work:
   clickhouse-data:
+  superset-home:
   airflow-logs:

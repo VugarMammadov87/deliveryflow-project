@@ -1,4 +1,4 @@
-# Codex Implementation Plan
+﻿# Codex Implementation Plan
 ## Real-Time Delivery Monitoring and Daily Transportation Optimization
 
 > **Primary source of truth:** `requirement.md`
@@ -24,7 +24,7 @@ The target platform combines:
 - Apache Spark for distributed batch computation.
 - Apache Airflow with `LocalExecutor` for batch orchestration.
 - PostgreSQL for Airflow metadata and approved relational/reference workloads.
-- Power BI for reporting and analytics.
+- Superset for reporting and analytics.
 - Docker Compose for local platform orchestration.
 - Makefile for developer operations.
 
@@ -43,7 +43,7 @@ Data Lake data-file format              -> Parquet
 Data Lake table format                  -> Apache Iceberg
 Iceberg catalog                         -> Nessie
 Airflow executor                        -> LocalExecutor
-BI platform                             -> Power BI
+BI platform                             -> Superset
 Relational / Airflow metadata database  -> PostgreSQL
 Operational / analytical serving        -> ClickHouse
 Batch compute                           -> Apache Spark
@@ -64,7 +64,7 @@ Nessie     = Iceberg catalog
 Spark      = distributed batch compute
 Airflow    = workflow orchestration/control plane
 PostgreSQL = Airflow metadata + explicitly approved relational/reference workloads
-Power BI   = BI/reporting layer
+Superset   = BI/reporting layer
 ```
 
 Airflow must not replace Spark or Flink.
@@ -111,7 +111,7 @@ PostgreSQL business/reference workloads must remain isolated from Airflow metada
                  +-------------+-------------+
                                |
                                v
-                            Power BI
+                            Superset
 ```
 
 PostgreSQL supports Airflow metadata and explicitly approved relational/reference workloads.
@@ -402,11 +402,11 @@ Determine:
 - Health check.
 - Recovery behavior.
 
-### ADR-009 - Power BI Serving Strategy
+### ADR-009 - Superset Serving Strategy
 
 Determine:
 
-- Power BI source.
+- Superset source.
 - Approved ClickHouse connectivity approach.
 - Import vs DirectQuery where supported and justified.
 - Semantic-model boundaries.
@@ -431,35 +431,35 @@ Create only the minimum foundation required for the next approved service.
 
 ```text
 project-root/
-├── requirement.md
-├── plan.md
-├── .env
-├── .env.example
-├── .gitignore
-├── Makefile
-├── docker-compose.yml
-├── docker-compose.local.yml
-│
-├── services/
-│   ├── kafka/
-│   ├── flink/
-│   ├── spark/
-│   ├── airflow/
-│   ├── clickhouse/
-│   ├── object-storage/
-│   ├── nessie/
-│   └── postgres/
-│
-├── dags/
-├── src/
-│   ├── producers/
-│   ├── streaming/
-│   └── batch/
-├── configs/
-├── scripts/
-├── tests/
-├── docs/
-└── data/
+â”œâ”€â”€ requirement.md
+â”œâ”€â”€ plan.md
+â”œâ”€â”€ .env
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ .gitignore
+â”œâ”€â”€ Makefile
+â”œâ”€â”€ docker-compose.yml
+â”œâ”€â”€ docker-compose.local.yml
+â”‚
+â”œâ”€â”€ services/
+â”‚   â”œâ”€â”€ kafka/
+â”‚   â”œâ”€â”€ flink/
+â”‚   â”œâ”€â”€ spark/
+â”‚   â”œâ”€â”€ airflow/
+â”‚   â”œâ”€â”€ clickhouse/
+â”‚   â”œâ”€â”€ object-storage/
+â”‚   â”œâ”€â”€ nessie/
+â”‚   â””â”€â”€ postgres/
+â”‚
+â”œâ”€â”€ dags/
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ producers/
+â”‚   â”œâ”€â”€ streaming/
+â”‚   â””â”€â”€ batch/
+â”œâ”€â”€ configs/
+â”œâ”€â”€ scripts/
+â”œâ”€â”€ tests/
+â”œâ”€â”€ docs/
+â””â”€â”€ data/
 ```
 
 This is a target structure, not authorization to create all directories immediately.
@@ -624,15 +624,15 @@ Provide a durable relational store for Airflow metadata and approved relational/
 
 ```text
 PostgreSQL Compose definition
-        ↓
+        â†“
 Named persistent volume
-        ↓
+        â†“
 Readiness health check
-        ↓
+        â†“
 Airflow metadata database
-        ↓
+        â†“
 Airflow role/user
-        ↓
+        â†“
 Optional isolated business/reference database
 ```
 
@@ -640,10 +640,10 @@ Optional isolated business/reference database
 
 ```text
 PostgreSQL Instance
-├── airflow_metadata
-│   └── airflow role
-└── logistics_reference
-    └── application role
+â”œâ”€â”€ airflow_metadata
+â”‚   â””â”€â”€ airflow role
+â””â”€â”€ logistics_reference
+    â””â”€â”€ application role
 ```
 
 The exact second database is created only if required.
@@ -678,23 +678,23 @@ Establish the event backbone.
 
 ```text
 Kafka Compose service
-        ↓
+        â†“
 KRaft configuration
-        ↓
+        â†“
 Internal listener
-        ↓
+        â†“
 External listener
-        ↓
+        â†“
 Persistent volume
-        ↓
+        â†“
 Readiness health check
-        ↓
+        â†“
 Configuration validation
-        ↓
+        â†“
 Service startup
-        ↓
+        â†“
 Topic provisioning
-        ↓
+        â†“
 Producer/consumer smoke test
 ```
 
@@ -746,15 +746,15 @@ Nessie remains the catalog.
 
 ```text
 Object-storage service
-        ↓
+        â†“
 Persistent volume
-        ↓
+        â†“
 Health check
-        ↓
+        â†“
 Development credentials
-        ↓
+        â†“
 Warehouse bucket
-        ↓
+        â†“
 Spark S3 connectivity test
 ```
 
@@ -794,15 +794,15 @@ S3-Compatible Object Storage
 
 ```text
 Nessie service
-    ↓
+    â†“
 Version compatibility validation
-    ↓
+    â†“
 Catalog endpoint
-    ↓
+    â†“
 Persistence configuration
-    ↓
+    â†“
 Health check
-    ↓
+    â†“
 Warehouse/catalog connectivity test
 ```
 
@@ -827,17 +827,17 @@ Prove the analytical storage foundation before business batch code is written.
 
 ```text
 Spark
-  ↓
+  â†“
 Nessie
-  ↓
+  â†“
 Create Iceberg namespace
-  ↓
+  â†“
 Create Iceberg test table
-  ↓
+  â†“
 Write records
-  ↓
+  â†“
 Parquet files stored in S3-compatible storage
-  ↓
+  â†“
 Read the same Iceberg table
 ```
 
@@ -868,13 +868,13 @@ Provide low-latency operational and analytical serving.
 
 ```text
 ClickHouse service
-    ↓
+    â†“
 Persistent volume
-    ↓
+    â†“
 HTTP endpoint
-    ↓
+    â†“
 Native endpoint
-    ↓
+    â†“
 Health check
 ```
 
@@ -981,17 +981,17 @@ Do not introduce CeleryExecutor, Redis, RabbitMQ, or KubernetesExecutor unless e
 
 ```text
 Airflow image/configuration
-        ↓
+        â†“
 PostgreSQL metadata connection
-        ↓
+        â†“
 Metadata DB migration/init
-        ↓
+        â†“
 Webserver
-        ↓
+        â†“
 Scheduler
-        ↓
+        â†“
 LocalExecutor validation
-        ↓
+        â†“
 Simple test DAG
 ```
 
@@ -1017,11 +1017,11 @@ Prove that Airflow can orchestrate Spark without business complexity.
 
 ```text
 Airflow DAG
-    ↓
+    â†“
 Submit simple Spark job
-    ↓
+    â†“
 Spark executes
-    ↓
+    â†“
 Task success returned to Airflow
 ```
 
@@ -1052,11 +1052,11 @@ Provide the real-time stream-processing engine.
 
 ```text
 Kafka
-  ↓
+  â†“
 Flink JobManager
-  ↓
+  â†“
 Flink TaskManager
-  ↓
+  â†“
 ClickHouse
 ```
 
@@ -1171,9 +1171,9 @@ Delivery status transitions
 
 ```text
 Python Producer
-      ↓
+      â†“
 Versioned JSON Events
-      ↓
+      â†“
 Kafka
 ```
 
@@ -1208,19 +1208,19 @@ Build the first complete real-time processing path.
 
 ```text
 Producer
-   ↓
+   â†“
 Kafka
-   ↓
+   â†“
 Flink
-   ↓
+   â†“
 Deserialize JSON
-   ↓
+   â†“
 Validate
-   ↓
+   â†“
 Keyed/stateful processing
-   ↓
+   â†“
 ETA / delay / route logic
-   ↓
+   â†“
 ClickHouse
 ```
 
@@ -1239,9 +1239,9 @@ ClickHouse
 
 ```text
 Generate event
-→ Kafka receives event
-→ Flink processes event
-→ ClickHouse contains expected result
+â†’ Kafka receives event
+â†’ Flink processes event
+â†’ ClickHouse contains expected result
 ```
 
 ### Exit Criteria
@@ -1274,9 +1274,9 @@ delivery_confirmation_events
 
 ```text
 Iceberg table
-    ↓
+    â†“
 Parquet files
-    ↓
+    â†“
 S3-compatible object storage
 
 Catalog:
@@ -1314,15 +1314,15 @@ Process completed and historical transportation data.
 
 ```text
 Iceberg Raw
-    ↓
+    â†“
 Spark
-    ↓
+    â†“
 Clean / Validate / Deduplicate
-    ↓
+    â†“
 Silver
-    ↓
+    â†“
 Aggregate
-    ↓
+    â†“
 Gold KPI Tables
 ```
 
@@ -1378,17 +1378,17 @@ Move the proven Spark workflow under Airflow orchestration.
 
 ```text
 check_source_readiness
-        ↓
+        â†“
 run_spark_daily_batch
-        ↓
+        â†“
 validate_outputs
-        ↓
+        â†“
 run_data_quality_checks
-        ↓
+        â†“
 publish_analytical_outputs
-        ↓
+        â†“
 publish_to_clickhouse_if_approved
-        ↓
+        â†“
 complete
 ```
 
@@ -1428,12 +1428,12 @@ Expose analytical results efficiently for BI.
 
 ```text
 Spark Gold Iceberg Tables
-          ↓
+          â†“
 Approved Publication Step
-          ↓
+          â†“
 ClickHouse
-          ↓
-Power BI
+          â†“
+Superset
 ```
 
 The exact publication model must be approved.
@@ -1455,15 +1455,15 @@ The exact publication model must be approved.
 
 ---
 
-# 27. Power BI
+# 27. Superset
 
-## Phase 22 - Prepare Power BI Reporting
+## Phase 22 - Prepare Superset Reporting
 
 ### Objective
 
 Provide operational and management analytics.
 
-Power BI is not a Docker Compose service in this local platform.
+Superset is not a Docker Compose service in this local platform.
 
 The repository should provide:
 
@@ -1503,7 +1503,7 @@ Potential metrics:
 
 ### Exit Criteria
 
-- Power BI can access approved serving data.
+- Superset can access approved serving data.
 - Operational and management concerns are separated.
 - KPI definitions match the approved business logic.
 
@@ -1544,25 +1544,25 @@ Critical data-quality failures are detectable and visible.
 
 ```text
 Same Kafka event twice
-→ no incorrect duplicate business result
+â†’ no incorrect duplicate business result
 
 Flink restart
-→ state recovers
+â†’ state recovers
 
 Same Spark source twice
-→ deterministic output
+â†’ deterministic output
 
 Airflow retry
-→ no duplicate publication
+â†’ no duplicate publication
 
 Airflow backfill
-→ correct historical partition/date
+â†’ correct historical partition/date
 
 Kafka replay
-→ derived state can be rebuilt
+â†’ derived state can be rebuilt
 
 Iceberg replay/reprocessing
-→ analytical tables can be recalculated
+â†’ analytical tables can be recalculated
 ```
 
 ### Exit Criteria
@@ -1741,7 +1741,7 @@ Iceberg -> Parquet files in object storage works
 Airflow -> PostgreSQL works
 Airflow -> Spark works
 
-Power BI approved analytical access is documented/tested
+Superset approved analytical access is documented/tested
 ```
 
 ### Persistence
@@ -1766,21 +1766,21 @@ Infrastructure is stable enough for end-to-end business validation.
 
 ```text
 Baku Warehouse
-      ↓
+      â†“
 Truck with customer orders
-      ↓
+      â†“
 GPS + Delivery Events
-      ↓
+      â†“
 Versioned JSON
-      ↓
+      â†“
 Kafka
-      ↓
+      â†“
 Flink
-      ↓
+      â†“
 Delay / ETA / State Processing
-      ↓
+      â†“
 ClickHouse
-      ↓
+      â†“
 Operational Analytics
 ```
 
@@ -1788,20 +1788,20 @@ Operational Analytics
 
 ```text
 Raw Events
-    ↓
+    â†“
 Iceberg + Parquet
-    ↓
+    â†“
 Nessie
-    ↓
+    â†“
 Airflow LocalExecutor
-    ↓
+    â†“
 Spark
-    ↓
+    â†“
 Daily KPI Tables
-    ↓
+    â†“
 ClickHouse / Approved Serving
-    ↓
-Power BI
+    â†“
+Superset
 ```
 
 ### Expected Business Demonstration
@@ -1814,7 +1814,7 @@ The demo should prove:
 - Raw events are persisted.
 - Historical events are replayable.
 - Daily batch KPIs are calculated.
-- Power BI can consume approved analytical results.
+- Superset can consume approved analytical results.
 - Restart/retry does not corrupt business results.
 
 ---
@@ -1856,7 +1856,7 @@ The project is considered functionally complete when:
 
 [ ] Analytical publication is idempotent.
 
-[ ] Power BI can consume approved analytical datasets.
+[ ] Superset can consume approved analytical datasets.
 
 [ ] Duplicate inputs do not create incorrect business results.
 
@@ -1917,7 +1917,7 @@ The project is considered functionally complete when:
 28  Airflow daily DAG
 29  Analytical publication
 
-30  Power BI serving preparation
+30  Superset serving preparation
 
 31  Data quality
 32  Idempotency
@@ -1957,7 +1957,7 @@ unless I explicitly request a change:
 - Data Lake table format: Apache Iceberg
 - Iceberg catalog: Nessie
 - Airflow executor: LocalExecutor
-- BI platform: Power BI
+- BI platform: Superset
 - PostgreSQL: Airflow metadata and approved relational/reference workloads
 - ClickHouse: low-latency operational and analytical serving
 - Spark: distributed batch compute

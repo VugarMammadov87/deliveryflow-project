@@ -12,15 +12,16 @@ POSTGRES_AIRFLOW_PORT ?= 5432
 POSTGRES_SOURCE_PORT ?= 5433
 CLICKHOUSE_HTTP_PORT ?= 8123
 CLICKHOUSE_NATIVE_PORT ?= 9009
+SUPERSET_PORT ?= 8088
 NESSIE_PORT ?= 19120
 NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 
-.PHONY: help config build pull up down clean restart ps status health console \
-	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-nessie url-minio url-minio-console \
-	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-postgres logs-storage logs-nessie \
-	init-topics submit-flink-job produce spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
+.PHONY: help config build pull up down clean purge restart ps status health console \
+	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
+	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie \
+	init-topics submit-flink-job produce produce-stream seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
 
 help:
 	@echo "DeliveryFlow local platform"
@@ -30,6 +31,7 @@ help:
 	@echo "  make up                  Start the full local platform"
 	@echo "  make down                Stop containers and preserve named volumes"
 	@echo "  make clean               Stop and remove project containers, preserving named volumes"
+	@echo "  make purge               Destructively remove project containers, volumes, images, and orphans"
 	@echo "  make restart             Restart containers and preserve named volumes"
 	@echo "  make ps                  Show container status"
 	@echo "  make health              Run non-destructive platform health checks"
@@ -37,7 +39,9 @@ help:
 	@echo "  make urls                Show browser URLs only"
 	@echo "  make url-kafka-ui        Show Kafka UI URL"
 	@echo "  make logs-kafka-ui       Tail Kafka UI logs"
-	@echo "  make produce             Generate synthetic logistics events"
+	@echo "  make produce             Generate synthetic batch source rows and stream events"
+	@echo "  make produce-stream      Generate Kafka stream events only"
+	@echo "  make seed-batch-source   Generate PostgreSQL batch source rows only"
 	@echo "  make submit-flink-job    Submit the Kafka -> Flink -> ClickHouse job"
 	@echo "  make spark-iceberg-test  Validate Spark -> Nessie -> Iceberg -> S3"
 	@echo "  make spark-daily-kpi     Run daily Spark KPI publication"
@@ -47,19 +51,22 @@ config:
 	$(COMPOSE) config
 
 pull:
-	$(COMPOSE) pull postgres-airflow postgres-source kafka kafka-ui minio minio-init nessie clickhouse
+	$(COMPOSE) pull postgres-airflow postgres-source kafka kafka-ui minio minio-init nessie clickhouse superset
 
 build:
-	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer
+	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer superset
 
 up:
-	$(COMPOSE) up -d --build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
+	$(COMPOSE) up -d --build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse superset airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
 
 down:
 	$(COMPOSE) down
 
 clean:
 	$(COMPOSE) down --remove-orphans
+
+purge:
+	$(COMPOSE) down --volumes --remove-orphans --rmi local
 
 restart:
 	$(COMPOSE) restart
@@ -82,6 +89,7 @@ console:
 	@echo PostgreSQL Nessie metadata: postgres-source:5432/$(NESSIE_DB_NAME)
 	@echo ClickHouse HTTP: http://localhost:$(CLICKHOUSE_HTTP_PORT)
 	@echo ClickHouse native: localhost:$(CLICKHOUSE_NATIVE_PORT)
+	@echo Superset UI: http://localhost:$(SUPERSET_PORT) (admin/admin by default)
 	@echo Nessie API: http://localhost:$(NESSIE_PORT)/api/v2
 	@echo MinIO API: http://localhost:$(MINIO_API_PORT)
 	@echo MinIO Console: http://localhost:$(MINIO_CONSOLE_PORT)
@@ -92,6 +100,7 @@ urls:
 	@echo Spark UI: http://localhost:$(SPARK_MASTER_UI_PORT)
 	@echo Airflow UI: http://localhost:$(AIRFLOW_WEB_PORT)
 	@echo ClickHouse HTTP: http://localhost:$(CLICKHOUSE_HTTP_PORT)
+	@echo Superset UI: http://localhost:$(SUPERSET_PORT)
 	@echo Nessie API: http://localhost:$(NESSIE_PORT)/api/v2
 	@echo MinIO API: http://localhost:$(MINIO_API_PORT)
 	@echo MinIO Console: http://localhost:$(MINIO_CONSOLE_PORT)
@@ -110,6 +119,9 @@ url-airflow:
 
 url-clickhouse:
 	@echo http://localhost:$(CLICKHOUSE_HTTP_PORT)
+
+url-superset:
+	@echo http://localhost:$(SUPERSET_PORT)
 
 url-nessie:
 	@echo http://localhost:$(NESSIE_PORT)/api/v2
@@ -141,6 +153,9 @@ logs-airflow:
 logs-clickhouse:
 	$(COMPOSE) logs -f clickhouse
 
+logs-superset:
+	$(COMPOSE) logs -f superset
+
 logs-postgres:
 	$(COMPOSE) logs -f postgres-airflow postgres-source
 
@@ -159,11 +174,17 @@ submit-flink-job:
 produce:
 	$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer
 
+produce-stream:
+	$(COMPOSE) run --rm -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer
+
+seed-batch-source:
+	$(COMPOSE) run --rm -e PRODUCER_MODE=batch producer python -m producers.synthetic_logistics_producer
+
 spark-iceberg-test:
 	$(COMPOSE) exec -T -u 0 spark-master /opt/spark/bin/spark-submit /opt/deliveryflow/src/etl/apps/iceberg_smoke_test.py
 
 spark-daily-kpi:
-	$(COMPOSE) exec -T airflow-scheduler spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
+	$(COMPOSE) exec -T -u 0 spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
 
 airflow-dag-list:
 	$(COMPOSE) exec airflow-scheduler airflow dags list

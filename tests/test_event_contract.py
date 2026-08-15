@@ -12,3 +12,6 @@ def test_synthetic_event_uses_versioned_json_contract() -> None:
     assert event["event_timestamp"].endswith("Z")
     assert isinstance(event["payload"], dict)
     assert event["payload"]["capacity_total"] > 0
+    assert event["payload"]["package_count"] > 0
+    assert event["payload"]["service_level"] in {"standard", "express", "same_day"}
+    assert event["payload"]["traffic_condition"] in {"low", "medium", "heavy"}

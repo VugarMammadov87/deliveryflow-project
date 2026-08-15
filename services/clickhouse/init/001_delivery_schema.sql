@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS delivery.delivery_events
     delay_minutes Int32,
     capacity_used Float64,
     capacity_total Float64,
+    service_level LowCardinality(String),
+    priority LowCardinality(String),
+    customer_id String,
+    destination_city String,
+    package_count UInt32,
+    order_value Float64,
+    payment_method LowCardinality(String),
+    planned_distance_km Float64,
+    traffic_condition LowCardinality(String),
+    weather_condition LowCardinality(String),
     raw_event String
 )
 ENGINE = MergeTree
@@ -50,6 +60,16 @@ CREATE TABLE IF NOT EXISTS delivery.delivery_current_state
     capacity_used Float64,
     capacity_total Float64,
     utilization_ratio Float64,
+    service_level LowCardinality(String),
+    priority LowCardinality(String),
+    customer_id String,
+    destination_city String,
+    package_count UInt32,
+    order_value Float64,
+    payment_method LowCardinality(String),
+    planned_distance_km Float64,
+    traffic_condition LowCardinality(String),
+    weather_condition LowCardinality(String),
     last_event_id String,
     last_event_timestamp DateTime64(3, 'UTC'),
     version UInt64
@@ -68,6 +88,8 @@ CREATE TABLE IF NOT EXISTS delivery.vehicle_current_state
     capacity_used Float64,
     capacity_total Float64,
     utilization_ratio Float64,
+    traffic_condition LowCardinality(String),
+    weather_condition LowCardinality(String),
     last_event_timestamp DateTime64(3, 'UTC'),
     version UInt64
 )
@@ -86,9 +108,67 @@ CREATE TABLE IF NOT EXISTS delivery.daily_delivery_kpi
     on_time_rate Float64,
     avg_delay_minutes Float64,
     avg_vehicle_utilization Float64,
+    total_order_value Float64,
+    total_package_count UInt64,
+    avg_distance_km Float64,
     published_at DateTime64(3, 'UTC'),
     version UInt64
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(business_date)
 ORDER BY (business_date, region, warehouse_id);
+
+CREATE VIEW IF NOT EXISTS delivery.v_delivery_status_overview AS
+SELECT
+    status,
+    count() AS event_count,
+    uniqExact(delivery_id) AS delivery_count,
+    avg(delay_minutes) AS avg_delay_minutes
+FROM delivery.delivery_events
+GROUP BY status;
+
+CREATE VIEW IF NOT EXISTS delivery.v_delay_by_region AS
+SELECT
+    region,
+    service_level,
+    count() AS event_count,
+    avg(delay_minutes) AS avg_delay_minutes,
+    sum(delay_minutes > 0) / greatest(count(), 1) AS delay_rate
+FROM delivery.delivery_events
+GROUP BY region, service_level;
+
+CREATE VIEW IF NOT EXISTS delivery.v_vehicle_utilization AS
+SELECT
+    vehicle_id,
+    anyLast(active_status) AS active_status,
+    anyLast(route_id) AS route_id,
+    avg(utilization_ratio) AS avg_utilization_ratio,
+    max(last_event_timestamp) AS last_seen_at
+FROM delivery.vehicle_current_state
+GROUP BY vehicle_id;
+
+CREATE VIEW IF NOT EXISTS delivery.v_warehouse_daily_kpi AS
+SELECT
+    business_date,
+    region,
+    warehouse_id,
+    completed_deliveries,
+    delayed_deliveries,
+    on_time_deliveries,
+    delay_rate,
+    on_time_rate,
+    avg_vehicle_utilization,
+    total_order_value,
+    total_package_count,
+    avg_distance_km
+FROM delivery.daily_delivery_kpi;
+
+CREATE VIEW IF NOT EXISTS delivery.v_delivery_event_volume AS
+SELECT
+    toStartOfHour(event_timestamp) AS event_hour,
+    event_type,
+    region,
+    count() AS event_count,
+    uniqExact(delivery_id) AS delivery_count
+FROM delivery.delivery_events
+GROUP BY event_hour, event_type, region;

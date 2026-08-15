@@ -31,9 +31,16 @@ CREATE TABLE IF NOT EXISTS drivers (
 
 CREATE TABLE IF NOT EXISTS customer_orders (
     order_id TEXT PRIMARY KEY,
+    customer_id TEXT,
     customer_region TEXT NOT NULL,
+    destination_city TEXT,
     destination_latitude NUMERIC(9, 6) NOT NULL,
     destination_longitude NUMERIC(9, 6) NOT NULL,
+    service_level TEXT NOT NULL DEFAULT 'standard',
+    priority TEXT NOT NULL DEFAULT 'normal',
+    package_count INTEGER NOT NULL DEFAULT 1 CHECK (package_count > 0),
+    order_value NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (order_value >= 0),
+    payment_method TEXT NOT NULL DEFAULT 'card',
     order_created_at TIMESTAMPTZ NOT NULL,
     promised_delivery_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

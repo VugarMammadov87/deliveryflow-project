@@ -91,6 +91,16 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
             + "\"delay_minutes\":" + event.delayMinutes + ","
             + "\"capacity_used\":" + event.capacityUsed + ","
             + "\"capacity_total\":" + event.capacityTotal + ","
+            + "\"service_level\":" + quote(event.serviceLevel) + ","
+            + "\"priority\":" + quote(event.priority) + ","
+            + "\"customer_id\":" + quote(event.customerId) + ","
+            + "\"destination_city\":" + quote(event.destinationCity) + ","
+            + "\"package_count\":" + event.packageCount + ","
+            + "\"order_value\":" + event.orderValue + ","
+            + "\"payment_method\":" + quote(event.paymentMethod) + ","
+            + "\"planned_distance_km\":" + event.plannedDistanceKm + ","
+            + "\"traffic_condition\":" + quote(event.trafficCondition) + ","
+            + "\"weather_condition\":" + quote(event.weatherCondition) + ","
             + "\"raw_event\":" + quote(event.rawEvent)
             + "}";
     }
@@ -115,6 +125,16 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
             + "\"capacity_used\":" + event.capacityUsed + ","
             + "\"capacity_total\":" + event.capacityTotal + ","
             + "\"utilization_ratio\":" + utilization + ","
+            + "\"service_level\":" + quote(event.serviceLevel) + ","
+            + "\"priority\":" + quote(event.priority) + ","
+            + "\"customer_id\":" + quote(event.customerId) + ","
+            + "\"destination_city\":" + quote(event.destinationCity) + ","
+            + "\"package_count\":" + event.packageCount + ","
+            + "\"order_value\":" + event.orderValue + ","
+            + "\"payment_method\":" + quote(event.paymentMethod) + ","
+            + "\"planned_distance_km\":" + event.plannedDistanceKm + ","
+            + "\"traffic_condition\":" + quote(event.trafficCondition) + ","
+            + "\"weather_condition\":" + quote(event.weatherCondition) + ","
             + "\"last_event_id\":" + quote(event.eventId) + ","
             + "\"last_event_timestamp\":" + quote(event.eventTimestamp.replace("Z", "")) + ","
             + "\"version\":" + version
@@ -132,6 +152,8 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
             + "\"capacity_used\":" + event.capacityUsed + ","
             + "\"capacity_total\":" + event.capacityTotal + ","
             + "\"utilization_ratio\":" + utilization + ","
+            + "\"traffic_condition\":" + quote(event.trafficCondition) + ","
+            + "\"weather_condition\":" + quote(event.weatherCondition) + ","
             + "\"last_event_timestamp\":" + quote(event.eventTimestamp.replace("Z", "")) + ","
             + "\"version\":" + version
             + "}";

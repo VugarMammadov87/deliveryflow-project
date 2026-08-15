@@ -33,6 +33,16 @@ public class DeliveryEventParser implements MapFunction<String, DeliveryEvent> {
         event.delayMinutes = payload.path("delay_minutes").asInt();
         event.capacityUsed = payload.path("capacity_used").asDouble();
         event.capacityTotal = payload.path("capacity_total").asDouble();
+        event.serviceLevel = payload.path("service_level").asText("");
+        event.priority = payload.path("priority").asText("");
+        event.customerId = payload.path("customer_id").asText("");
+        event.destinationCity = payload.path("destination_city").asText("");
+        event.packageCount = payload.path("package_count").asInt();
+        event.orderValue = payload.path("order_value").asDouble();
+        event.paymentMethod = payload.path("payment_method").asText("");
+        event.plannedDistanceKm = payload.path("planned_distance_km").asDouble();
+        event.trafficCondition = payload.path("traffic_condition").asText("");
+        event.weatherCondition = payload.path("weather_condition").asText("");
         event.rawEvent = value.replace("\\", "\\\\").replace("'", "\\'");
         return event;
     }

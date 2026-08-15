@@ -23,5 +23,15 @@ public class DeliveryEvent implements Serializable {
     public int delayMinutes;
     public double capacityUsed;
     public double capacityTotal;
+    public String serviceLevel;
+    public String priority;
+    public String customerId;
+    public String destinationCity;
+    public int packageCount;
+    public double orderValue;
+    public String paymentMethod;
+    public double plannedDistanceKm;
+    public String trafficCondition;
+    public String weatherCondition;
     public String rawEvent;
 }

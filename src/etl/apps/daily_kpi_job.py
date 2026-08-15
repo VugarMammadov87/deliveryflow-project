@@ -80,7 +80,17 @@ class DeliveryEventReader:
                     longitude,
                     delay_minutes,
                     capacity_used,
-                    capacity_total
+                    capacity_total,
+                    service_level,
+                    priority,
+                    customer_id,
+                    destination_city,
+                    package_count,
+                    order_value,
+                    payment_method,
+                    planned_distance_km,
+                    traffic_condition,
+                    weather_condition
                 FROM {self.source_table}
             ) AS delivery_events
             """
@@ -109,6 +119,9 @@ class DeliveryEventTransformer:
                 F.sum(F.when(F.col("is_delayed") == 0, 1).otherwise(0)).cast("long").alias("on_time_deliveries"),
                 F.avg("delay_minutes").alias("avg_delay_minutes"),
                 F.avg("utilization_ratio").alias("avg_vehicle_utilization"),
+                F.sum("order_value").alias("total_order_value"),
+                F.sum("package_count").cast("long").alias("total_package_count"),
+                F.avg("planned_distance_km").alias("avg_distance_km"),
             )
             .withColumn("delay_rate", F.col("delayed_deliveries") / denominator)
             .withColumn("on_time_rate", F.col("on_time_deliveries") / denominator)
@@ -148,6 +161,16 @@ class IcebergDailyKpiRepository:
                 "delay_minutes",
                 "capacity_used",
                 "capacity_total",
+                "service_level",
+                "priority",
+                "customer_id",
+                "destination_city",
+                "package_count",
+                "order_value",
+                "payment_method",
+                "planned_distance_km",
+                "traffic_condition",
+                "weather_condition",
                 "business_date",
             )
             .dropDuplicates(["event_id"])
@@ -173,6 +196,9 @@ class ClickHouseDailyKpiPublisher:
         "on_time_rate",
         "avg_delay_minutes",
         "avg_vehicle_utilization",
+        "total_order_value",
+        "total_package_count",
+        "avg_distance_km",
         "published_at",
         "version",
     ]

@@ -72,6 +72,7 @@ def main() -> int:
         http_check("Nessie", "http://nessie:19120/api/v2/config"),
         http_check("Spark", "http://spark-master:8080"),
         clickhouse_check(),
+        http_check("Superset", "http://superset:8088/health"),
         http_check("Flink", "http://flink-jobmanager:8081/overview"),
         http_check("Airflow", "http://airflow-webserver:8080/health"),
     ]

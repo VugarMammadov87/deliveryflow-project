@@ -41,7 +41,17 @@
         "estimated_arrival_timestamp": { "type": "string", "format": "date-time" },
         "delay_minutes": { "type": "integer" },
         "capacity_used": { "type": "number", "minimum": 0 },
-        "capacity_total": { "type": "number", "exclusiveMinimum": 0 }
+        "capacity_total": { "type": "number", "exclusiveMinimum": 0 },
+        "service_level": { "type": "string" },
+        "priority": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "destination_city": { "type": "string" },
+        "package_count": { "type": "integer", "minimum": 1 },
+        "order_value": { "type": "number", "minimum": 0 },
+        "payment_method": { "type": "string" },
+        "planned_distance_km": { "type": "number", "minimum": 0 },
+        "traffic_condition": { "type": "string" },
+        "weather_condition": { "type": "string" }
       },
       "additionalProperties": true
     }

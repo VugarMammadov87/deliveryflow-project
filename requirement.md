@@ -1,4 +1,4 @@
-# Real-Time Delivery Monitoring and Daily Transportation Optimization
+﻿# Real-Time Delivery Monitoring and Daily Transportation Optimization
 
 > **Document purpose:** This file is the single source of truth for the project's business requirements, architecture requirements, infrastructure requirements, development rules, and implementation constraints. The platform is intended for local development first, while applying production-grade data engineering principles where practical.
 
@@ -870,7 +870,7 @@ These results can then be used to improve the next day's transportation plan.
 
 ## 24. BI Reporting Requirements
 
-Power BI is the approved BI and reporting layer.
+Superset is the approved BI and reporting layer.
 
 Potential KPIs:
 
@@ -939,7 +939,7 @@ The target logical architecture is:
                               |
                               v
                      +----------------+
-                     |    Power BI    |
+                     |    Superset    |
                      +----------------+
 
 ```
@@ -995,7 +995,7 @@ Relational Database:
 PostgreSQL where business/relational workloads require it, and as the initial candidate for Airflow metadata storage
 
 BI:
-Power BI
+Superset
 
 Developer Automation:
 Makefile
@@ -1014,36 +1014,36 @@ Potential structure:
 
 ```
 project-root/
-├── requirement.md
-├── .env
-├── .env.example
-├── .gitignore
-├── Makefile
-├── docker-compose.yml
-├── docker-compose.local.yml
-│
-├── services/
-│   ├── kafka/
-│   ├── flink/
-│   ├── spark/
-│   ├── airflow/
-│   ├── clickhouse/
-│   ├── object-storage/
-│   ├── nessie/
-│   └── postgres/
-│
-├── dags/
-│
-├── src/
-│   ├── producers/
-│   ├── streaming/
-│   └── batch/
-│
-├── configs/
-├── scripts/
-├── tests/
-├── docs/
-└── data/
+â”œâ”€â”€ requirement.md
+â”œâ”€â”€ .env
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ .gitignore
+â”œâ”€â”€ Makefile
+â”œâ”€â”€ docker-compose.yml
+â”œâ”€â”€ docker-compose.local.yml
+â”‚
+â”œâ”€â”€ services/
+â”‚   â”œâ”€â”€ kafka/
+â”‚   â”œâ”€â”€ flink/
+â”‚   â”œâ”€â”€ spark/
+â”‚   â”œâ”€â”€ airflow/
+â”‚   â”œâ”€â”€ clickhouse/
+â”‚   â”œâ”€â”€ object-storage/
+â”‚   â”œâ”€â”€ nessie/
+â”‚   â””â”€â”€ postgres/
+â”‚
+â”œâ”€â”€ dags/
+â”‚
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ producers/
+â”‚   â”œâ”€â”€ streaming/
+â”‚   â””â”€â”€ batch/
+â”‚
+â”œâ”€â”€ configs/
+â”œâ”€â”€ scripts/
+â”œâ”€â”€ tests/
+â”œâ”€â”€ docs/
+â””â”€â”€ data/
 
 ```
 
@@ -2100,7 +2100,7 @@ Streaming serialization / event contracts -> JSON
 Data Lake table format                  -> Apache Iceberg
 Iceberg catalog                         -> Nessie
 Airflow executor                        -> LocalExecutor
-BI platform                             -> Power BI
+BI platform                             -> Superset
 
 ```
 
@@ -2116,7 +2116,7 @@ Single Kafka topic vs domain topics
 S3-compatible object-storage implementation
 Iceberg partitioning and maintenance strategy
 Nessie namespace/reference strategy
-Power BI semantic model and refresh approach
+Superset semantic model and refresh approach
 
 ```
 
@@ -2338,7 +2338,7 @@ Phase 5  - Flink
 Phase 6  - ClickHouse serving
 Phase 7  - Data Lake
 Phase 8  - Airflow orchestration and Spark batch
-Phase 9  - Analytical serving / Power BI
+Phase 9  - Analytical serving / Superset
 Phase 10 - Testing and observability
 
 ```
@@ -2365,7 +2365,7 @@ Process daily data with Spark
 Use PostgreSQL safely for approved relational and Airflow metadata workloads
 Calculate transportation KPIs
 Query analytical results
-Visualize results in Power BI
+Visualize results in Superset
 Stop and restart the environment safely
 Replay historical events
 Debug individual services
