@@ -1,0 +1,97 @@
+version: 1
+
+database:
+  name: DeliveryFlow ClickHouse
+  sqlalchemy_uri: clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
+  expose_in_sqllab: true
+
+datasets:
+  - name: Delivery Status Overview
+    schema: delivery
+    table_name: v_delivery_status_overview
+  - name: Delay by Region
+    schema: delivery
+    table_name: v_delay_by_region
+  - name: Vehicle Utilization
+    schema: delivery
+    table_name: v_vehicle_utilization
+  - name: Warehouse Daily KPI
+    schema: delivery
+    table_name: v_warehouse_daily_kpi
+  - name: Delivery Event Volume
+    schema: delivery
+    table_name: v_delivery_event_volume
+
+charts:
+  - name: Delivery Status Overview
+    dataset: Delivery Status Overview
+    viz_type: dist_bar
+    params:
+      metrics:
+        - event_count
+      groupby:
+        - status
+      row_limit: 1000
+      show_legend: true
+  - name: Delay by Region and Service Level
+    dataset: Delay by Region
+    viz_type: pivot_table_v2
+    params:
+      metrics:
+        - delay_rate
+        - avg_delay_minutes
+      groupbyRows:
+        - region
+      groupbyColumns:
+        - service_level
+      row_limit: 1000
+  - name: Vehicle Utilization
+    dataset: Vehicle Utilization
+    viz_type: table
+    params:
+      metrics:
+        - avg_utilization_ratio
+      groupby:
+        - vehicle_id
+        - active_status
+        - route_id
+      row_limit: 1000
+  - name: Warehouse Daily KPI
+    dataset: Warehouse Daily KPI
+    viz_type: table
+    params:
+      metrics:
+        - completed_deliveries
+        - delayed_deliveries
+        - on_time_deliveries
+        - delay_rate
+        - on_time_rate
+        - total_order_value
+      groupby:
+        - business_date
+        - region
+        - warehouse_id
+      row_limit: 1000
+  - name: Hourly Delivery Event Volume
+    dataset: Delivery Event Volume
+    viz_type: echarts_timeseries_line
+    params:
+      time_grain_sqla: PT1H
+      temporal_columns_lookup:
+        event_hour: true
+      metrics:
+        - event_count
+      groupby:
+        - event_type
+      row_limit: 1000
+
+dashboard:
+  title: DeliveryFlow Operations Dashboard
+  slug: deliveryflow-operations
+  published: true
+  charts:
+    - Delivery Status Overview
+    - Delay by Region and Service Level
+    - Vehicle Utilization
+    - Warehouse Daily KPI
+    - Hourly Delivery Event Volume

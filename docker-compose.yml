@@ -452,7 +452,15 @@ services:
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
-    command: /opt/flink/bin/flink run -m flink-jobmanager:8081 -d /opt/flink/usrlib/delivery-flink-job.jar
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if wget -qO- http://flink-jobmanager:8081/jobs/overview | grep -q '"name":"deliveryflow-kafka-flink-clickhouse".*"state":"RUNNING"'; then
+          echo "Flink job deliveryflow-kafka-flink-clickhouse is already RUNNING"
+        else
+          /opt/flink/bin/flink run -m flink-jobmanager:8081 -d /opt/flink/usrlib/delivery-flink-job.jar
+        fi
     networks:
       - delivery-platform-net
 
@@ -474,11 +482,64 @@ services:
       PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
       PRODUCER_MODE: ${PRODUCER_MODE}
       PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
+      PRODUCER_CONTINUOUS: ${PRODUCER_CONTINUOUS}
+      PRODUCER_CONTINUOUS_INTERVAL_SECONDS: ${PRODUCER_CONTINUOUS_INTERVAL_SECONDS}
       SOURCE_DB_HOST: postgres-source
       SOURCE_DB_PORT: 5432
       SOURCE_DB_NAME: ${SOURCE_DB_NAME}
       SOURCE_DB_USER: ${SOURCE_DB_USER}
       SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD}
+    networks:
+      - delivery-platform-net
+
+  producer-continuous:
+    build:
+      context: .
+      dockerfile: services/kafka/producer.Dockerfile
+    image: ${PRODUCER_IMAGE}
+    container_name: deliveryflow-producer-continuous
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      postgres-source:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
+      PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
+      PRODUCER_MODE: stream
+      PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
+      PRODUCER_CONTINUOUS: "true"
+      PRODUCER_CONTINUOUS_INTERVAL_SECONDS: ${PRODUCER_CONTINUOUS_INTERVAL_SECONDS}
+      SOURCE_DB_HOST: postgres-source
+      SOURCE_DB_PORT: 5432
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME}
+      SOURCE_DB_USER: ${SOURCE_DB_USER}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD}
+    command: python -m producers.synthetic_logistics_producer
+    restart: unless-stopped
+    networks:
+      - delivery-platform-net
+
+  superset-importer:
+    build:
+      context: .
+      dockerfile: services/kafka/producer.Dockerfile
+    image: ${PRODUCER_IMAGE}
+    container_name: deliveryflow-superset-importer
+    depends_on:
+      superset:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
+    environment:
+      SUPERSET_BASE_URL: http://superset:8088
+      SUPERSET_ADMIN_USER: ${SUPERSET_ADMIN_USER}
+      SUPERSET_ADMIN_PASSWORD: ${SUPERSET_ADMIN_PASSWORD}
+      SUPERSET_ASSET_FILE: /app/configs/superset/deliveryflow_bi.yaml
+      SUPERSET_IMPORT_TIMEOUT_SECONDS: ${SUPERSET_IMPORT_TIMEOUT_SECONDS}
+    command: python /app/scripts/import_superset_assets.py
     networks:
       - delivery-platform-net
 

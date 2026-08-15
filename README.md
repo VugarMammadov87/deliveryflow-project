@@ -505,6 +505,14 @@ ClickHouse connection URI:
 clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
 ```
 
+Superset obyektlərini BI-as-code kimi import etmək:
+
+```powershell
+make import-superset-assets
+```
+
+Bu command `configs/superset/deliveryflow_bi.yaml` faylından database, dataset, chart və dashboard obyektlərini Superset REST API vasitəsilə yaradır və ya yeniləyir.
+
 Dashboard üçün hazır view-lar:
 
 - `delivery.v_delivery_status_overview`
@@ -588,6 +596,8 @@ Full local platformanı başladır.
 make up
 ```
 
+Bu command core servislərlə birlikdə `producer-continuous` servisini də başladır. Həmin servis Kafka-ya hər 10 dəqiqədən bir yeni stream event göndərir.
+
 ### `make ps` və `make status`
 
 Container-lərin statusunu göstərir.
@@ -638,6 +648,32 @@ Yalnız Kafka stream event-ləri yaradır.
 make produce-stream
 ```
 
+### `make produce-continuous`
+
+Background `producer-continuous` servisini başladır. Bu servis `PRODUCER_MODE=stream` və `PRODUCER_CONTINUOUS=true` ilə işləyir, default olaraq hər 10 dəqiqədən bir Kafka-ya delivery event göndərir.
+
+```powershell
+make produce-continuous
+```
+
+Interval `.env` içində dəyişdirilir:
+
+```text
+PRODUCER_CONTINUOUS_INTERVAL_SECONDS=600
+```
+
+Log-lara baxmaq:
+
+```powershell
+make logs-producer-continuous
+```
+
+Dayandırmaq:
+
+```powershell
+make stop-continuous-producer
+```
+
 ### `make seed-batch-source`
 
 Yalnız PostgreSQL source cədvəllərini seed edir.
@@ -661,6 +697,22 @@ Daily KPI batch job-u işlədir. ClickHouse-da `delivery_events` data-sı olduqd
 ```powershell
 make spark-daily-kpi
 ```
+
+### `make import-superset-assets`
+
+Superset obyektlərini repo-dakı YAML faylından yaradır və ya yeniləyir.
+
+```powershell
+make import-superset-assets
+```
+
+YAML source of truth:
+
+```text
+configs/superset/deliveryflow_bi.yaml
+```
+
+Import nəticəsində `DeliveryFlow ClickHouse` database connection, 5 dataset, 5 chart və `DeliveryFlow Operations Dashboard` dashboard-u Superset-də hazır olur.
 
 ### `make airflow-dag-list`
 

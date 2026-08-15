@@ -21,6 +21,8 @@ class ProducerConfig:
     interval_seconds: float
     mode: str
     batch_rows: int
+    continuous: bool
+    continuous_interval_seconds: float
 
     @classmethod
     def from_env(cls) -> "ProducerConfig":
@@ -31,6 +33,8 @@ class ProducerConfig:
             interval_seconds=float(os.getenv("PRODUCER_INTERVAL_SECONDS", "0.2")),
             mode=os.getenv("PRODUCER_MODE", "both").lower(),
             batch_rows=int(os.getenv("PRODUCER_BATCH_ROWS", "40")),
+            continuous=os.getenv("PRODUCER_CONTINUOUS", "false").lower() in {"1", "true", "yes"},
+            continuous_interval_seconds=float(os.getenv("PRODUCER_CONTINUOUS_INTERVAL_SECONDS", "600")),
         )
 
 
@@ -226,11 +230,17 @@ def publish_stream_events(config: ProducerConfig, rng: Random) -> None:
         linger_ms=50,
     )
 
-    for index in range(config.event_count):
+    index = 0
+    while config.continuous or index < config.event_count:
         event = build_event(index, rng)
         producer.send(config.topic, key=event["delivery_id"], value=event)
         LOG.info("published event_id=%s type=%s delivery_id=%s", event["event_id"], event["event_type"], event["delivery_id"])
-        time.sleep(config.interval_seconds)
+        producer.flush(timeout=30)
+        index += 1
+        if config.continuous:
+            time.sleep(config.continuous_interval_seconds)
+        elif index < config.event_count:
+            time.sleep(config.interval_seconds)
 
     producer.flush(timeout=30)
     producer.close(timeout=10)

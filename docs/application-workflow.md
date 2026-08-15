@@ -82,6 +82,36 @@ Event payload-u artıq yalnız status və koordinatlardan ibarət deyil. Hesabat
 - `traffic_condition`
 - `weather_condition`
 
+### Davamli Stream Rejimi
+
+Stream generator bir defe isleyib dayanmaqla yanashi davamli servis kimi de isleyir. `producer-continuous` servisi `PRODUCER_MODE=stream` ve `PRODUCER_CONTINUOUS=true` ile baslayir.
+
+Default interval:
+
+```text
+PRODUCER_CONTINUOUS_INTERVAL_SECONDS=600
+```
+
+Bu o demekdir ki, platforma qalxandan sonra her 10 deqiqeden bir Kafka `delivery-events` topic-ine yeni logistics event publish edilir. Bu rejim Superset-de event volume, latest delivery state ve vehicle utilization chart-larinin zamanla yenilenmesini yoxlamaq ucundur.
+
+Davamli producer-i elle baslatmaq:
+
+```powershell
+make produce-continuous
+```
+
+Log-lara baxmaq:
+
+```powershell
+make logs-producer-continuous
+```
+
+Davamli producer-i dayandirmaq:
+
+```powershell
+make stop-continuous-producer
+```
+
 ## Stream Pipeline
 
 Stream pipeline real-time monitoring üçündür.

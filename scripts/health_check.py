@@ -5,6 +5,7 @@ import socket
 import sys
 import time
 from dataclasses import dataclass
+from typing import Callable
 
 import clickhouse_connect
 import requests
@@ -32,6 +33,15 @@ def http_check(name: str, url: str, timeout: float = 5.0) -> Check:
         return Check(name, response.ok, f"HTTP {response.status_code}")
     except requests.RequestException as exc:
         return Check(name, False, str(exc))
+
+
+def retry_check(factory: Callable[[], Check], max_wait_seconds: float, interval_seconds: float) -> Check:
+    deadline = time.time() + max_wait_seconds
+    last_check = factory()
+    while not last_check.ok and time.time() < deadline:
+        time.sleep(interval_seconds)
+        last_check = factory()
+    return last_check
 
 
 def kafka_check() -> Check:
@@ -64,17 +74,19 @@ def clickhouse_check() -> Check:
 
 
 def main() -> int:
+    startup_wait_seconds = float(os.getenv("HEALTH_STARTUP_WAIT_SECONDS", "180"))
+    retry_interval_seconds = float(os.getenv("HEALTH_RETRY_INTERVAL_SECONDS", "5"))
     checks = [
-        kafka_check(),
-        tcp_check("PostgresAirflow", "postgres-airflow", 5432),
-        tcp_check("PostgresSource", "postgres-source", 5432),
-        http_check("MinIO", "http://minio:9000/minio/health/ready"),
-        http_check("Nessie", "http://nessie:19120/api/v2/config"),
-        http_check("Spark", "http://spark-master:8080"),
-        clickhouse_check(),
-        http_check("Superset", "http://superset:8088/health"),
-        http_check("Flink", "http://flink-jobmanager:8081/overview"),
-        http_check("Airflow", "http://airflow-webserver:8080/health"),
+        retry_check(kafka_check, startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: tcp_check("PostgresAirflow", "postgres-airflow", 5432), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: tcp_check("PostgresSource", "postgres-source", 5432), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("MinIO", "http://minio:9000/minio/health/ready"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Nessie", "http://nessie:19120/api/v2/config"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Spark", "http://spark-master:8080"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(clickhouse_check, startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Superset", "http://superset:8088/health"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Flink", "http://flink-jobmanager:8081/overview"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Airflow", "http://airflow-webserver:8080/health"), startup_wait_seconds, retry_interval_seconds),
     ]
     for check in checks:
         status = "healthy" if check.ok else "unhealthy"

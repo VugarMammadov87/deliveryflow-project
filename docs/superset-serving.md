@@ -398,3 +398,37 @@ make up
 ```
 
 `make purge` named volume-ları sildiyi üçün lokal data da silinir.
+## BI as Code Modeli
+
+Superset obyektleri UI-da elle klikle yaradilmaga mecbur deyil. Bu repo Superset obyektlerini YAML fayli ile saxlayir:
+
+```text
+configs/superset/deliveryflow_bi.yaml
+```
+
+Bu YAML fayli asagidaki obyektler ucun source of truth rolunu oynayir:
+
+- database: `DeliveryFlow ClickHouse`
+- datasets: 5 ClickHouse report view-u
+- charts: 5 operational/statistical report
+- dashboard: `DeliveryFlow Operations Dashboard`
+
+Import script:
+
+```text
+scripts/import_superset_assets.py
+```
+
+Import command:
+
+```powershell
+make import-superset-assets
+```
+
+Script Superset REST API ile login olur, CSRF token alir ve YAML-daki obyektleri idempotent formada yaradir ve ya yenileyir. Superset-in native import/export endpoint-leri de bu strategiyaya uygundur:
+
+- dashboard import: `POST /api/v1/dashboard/import/`
+- dataset import: `POST /api/v1/dataset/import/`
+- assets import: `POST /api/v1/assets/import/`
+
+Bu layihedeki `make import-superset-assets` daha sade local workflow ucun YAML-dan REST create/update edir. Gelecekde eyni YAML spec native Superset ZIP export formatina cevrilib `/api/v1/assets/import/` endpoint-ine baglana biler.

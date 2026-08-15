@@ -20,8 +20,8 @@ MINIO_CONSOLE_PORT ?= 9001
 
 .PHONY: help config build pull up down clean purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
-	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie \
-	init-topics submit-flink-job produce produce-stream seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
+	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie logs-producer-continuous \
+	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
 
 help:
 	@echo "DeliveryFlow local platform"
@@ -41,8 +41,11 @@ help:
 	@echo "  make logs-kafka-ui       Tail Kafka UI logs"
 	@echo "  make produce             Generate synthetic batch source rows and stream events"
 	@echo "  make produce-stream      Generate Kafka stream events only"
+	@echo "  make produce-continuous  Start a background stream producer that emits one event every 10 minutes"
+	@echo "  make stop-continuous-producer Stop the background continuous stream producer"
 	@echo "  make seed-batch-source   Generate PostgreSQL batch source rows only"
 	@echo "  make submit-flink-job    Submit the Kafka -> Flink -> ClickHouse job"
+	@echo "  make import-superset-assets Import Superset database, datasets, charts, and dashboard from YAML"
 	@echo "  make spark-iceberg-test  Validate Spark -> Nessie -> Iceberg -> S3"
 	@echo "  make spark-daily-kpi     Run daily Spark KPI publication"
 	@echo "  make test-e2e            Run the local end-to-end smoke test"
@@ -54,10 +57,12 @@ pull:
 	$(COMPOSE) pull postgres-airflow postgres-source kafka kafka-ui minio minio-init nessie clickhouse superset
 
 build:
-	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer superset
+	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer superset superset-importer
 
 up:
 	$(COMPOSE) up -d --build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse superset airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
+	$(MAKE) submit-flink-job
+	$(COMPOSE) up -d producer-continuous
 
 down:
 	$(COMPOSE) down
@@ -165,17 +170,29 @@ logs-storage:
 logs-nessie:
 	$(COMPOSE) logs -f nessie
 
+logs-producer-continuous:
+	$(COMPOSE) logs -f producer-continuous
+
 init-topics:
 	$(COMPOSE) run --rm kafka-init
 
 submit-flink-job:
 	$(COMPOSE) run --rm flink-job-submit
 
+import-superset-assets:
+	$(COMPOSE) run --rm superset-importer
+
 produce:
 	$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer
 
 produce-stream:
 	$(COMPOSE) run --rm -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer
+
+produce-continuous:
+	$(COMPOSE) up -d producer-continuous
+
+stop-continuous-producer:
+	$(COMPOSE) stop producer-continuous
 
 seed-batch-source:
 	$(COMPOSE) run --rm -e PRODUCER_MODE=batch producer python -m producers.synthetic_logistics_producer
