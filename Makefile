@@ -184,23 +184,23 @@ init-topics:
 	$(COMPOSE) run --rm kafka-init
 
 submit-flink-job:
-	@if [ "$(APP)" = "fleet" ]; then \
-		$(COMPOSE) build flink-jobmanager; \
-		$(COMPOSE) run --rm flink-job-submit-fleet; \
-	else \
-		$(COMPOSE) run --rm flink-job-submit; \
-	fi
+ifeq ($(APP),fleet)
+	$(COMPOSE) build flink-jobmanager
+	$(COMPOSE) run --rm flink-job-submit-fleet
+else
+	$(COMPOSE) run --rm flink-job-submit
+endif
 
 import-superset-assets:
 	$(COMPOSE) build superset-importer
 	$(COMPOSE) run --rm superset-importer
 
 produce:
-	@if [ "$(APP)" = "fleet" ]; then \
-		$(COMPOSE) run --rm -e PRODUCER_APP=fleet -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer; \
-	else \
-		$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer; \
-	fi
+ifeq ($(APP),fleet)
+	$(COMPOSE) run --rm -e PRODUCER_APP=fleet -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer
+else
+	$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer
+endif
 
 produce-stream:
 	$(COMPOSE) run --rm -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer
@@ -224,11 +224,11 @@ airflow-dag-list:
 	$(COMPOSE) exec airflow-scheduler airflow dags list
 
 test-e2e:
-	@if [ "$(APP)" = "fleet" ]; then \
-		$(COMPOSE) run --rm -e E2E_APP=fleet producer python /app/scripts/e2e_smoke_test.py; \
-	else \
-		$(COMPOSE) run --rm producer python /app/scripts/e2e_smoke_test.py; \
-	fi
+ifeq ($(APP),fleet)
+	$(COMPOSE) run --rm -e E2E_APP=fleet producer python /app/scripts/e2e_smoke_test.py
+else
+	$(COMPOSE) run --rm producer python /app/scripts/e2e_smoke_test.py
+endif
 
 clean-warning:
 	@echo "Destructive cleanup is intentionally not implemented as a default target."
