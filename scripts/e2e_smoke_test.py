@@ -43,6 +43,14 @@ def wait_for_clickhouse_rows(table: str, minimum: int, timeout_seconds: int = 90
 
 
 def main() -> int:
+    """Run the selected end-to-end smoke scenario."""
+    if os.getenv("E2E_APP", "delivery").lower() == "fleet":
+        return fleet_main()
+
+    return delivery_main()
+
+
+def delivery_main() -> int:
     """Produce a small event batch and validate ClickHouse side effects."""
     os.environ.setdefault("PRODUCER_EVENT_COUNT", "10")
     os.environ.setdefault("PRODUCER_INTERVAL_SECONDS", "0.05")
@@ -62,6 +70,20 @@ def main() -> int:
     else:
         print("Iceberg smoke test must be run with spark-submit from a Spark container.")
 
+    return 0
+
+
+def fleet_main() -> int:
+    """Produce fleet telemetry and validate Flink SQL ClickHouse outputs."""
+    os.environ["PRODUCER_APP"] = "fleet"
+    os.environ["PRODUCER_MODE"] = "stream"
+    os.environ.setdefault("PRODUCER_EVENT_COUNT", "12")
+    os.environ.setdefault("PRODUCER_INTERVAL_SECONDS", "0.05")
+    produce_events()
+    wait_for_clickhouse_rows("fleet.vehicle_telemetry_events", 1)
+    wait_for_clickhouse_rows("fleet.vehicle_current_state", 1)
+    wait_for_clickhouse_rows("fleet.vehicle_health_alerts", 1)
+    print("FLEET_STREAMING_E2E_OK")
     return 0
 
 

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deliveryflow.local/contracts/delivery/delivery_event_v1.schema.json",
+  "title": "Delivery Event V1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "event_timestamp",
+    "delivery_id",
+    "vehicle_id",
+    "source",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": {
+      "type": "string",
+      "enum": ["ORDER_LOADED", "VEHICLE_DEPARTED", "IN_TRANSIT", "DELIVERY_DELAYED", "DELIVERED"]
+    },
+    "event_timestamp": { "type": "string", "format": "date-time" },
+    "order_id": { "type": "string" },
+    "shipment_id": { "type": "string" },
+    "delivery_id": { "type": "string" },
+    "vehicle_id": { "type": "string" },
+    "driver_id": { "type": "string" },
+    "warehouse_id": { "type": "string" },
+    "route_id": { "type": "string" },
+    "source": { "type": "string" },
+    "payload": {
+      "type": "object",
+      "required": ["status", "latitude", "longitude", "capacity_used", "capacity_total"],
+      "properties": {
+        "status": { "type": "string" },
+        "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+        "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+        "region": { "type": "string" },
+        "planned_arrival_timestamp": { "type": "string", "format": "date-time" },
+        "estimated_arrival_timestamp": { "type": "string", "format": "date-time" },
+        "delay_minutes": { "type": "integer" },
+        "capacity_used": { "type": "number", "minimum": 0 },
+        "capacity_total": { "type": "number", "exclusiveMinimum": 0 },
+        "service_level": { "type": "string" },
+        "priority": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "destination_city": { "type": "string" },
+        "package_count": { "type": "integer", "minimum": 1 },
+        "order_value": { "type": "number", "minimum": 0 },
+        "payment_method": { "type": "string" },
+        "planned_distance_km": { "type": "number", "minimum": 0 },
+        "traffic_condition": { "type": "string" },
+        "weather_condition": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

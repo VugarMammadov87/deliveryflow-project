@@ -1,0 +1,18 @@
+application: fleet
+domain: fleet-operations
+owner:
+  team: logistics-data-platform
+streaming:
+  enabled: true
+  job_name: fleet-vehicle-telemetry-sql
+  api: flink-sql-table-api
+  kafka_topic: vehicle-telemetry-events
+processing:
+  overspeed_threshold_kmh: 100
+  low_fuel_threshold_pct: 15
+  engine_temperature_threshold_c: 105
+serving:
+  clickhouse_database: fleet
+bi:
+  superset: false
+  future_scope: configs/superset/fleet

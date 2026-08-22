@@ -1,5 +1,42 @@
 # DeliveryFlow Local Data Platform
 
+## Multi-Application Stream Architecture Update
+
+DeliveryFlow artiq tek delivery stream demo kimi deyil, bir nece application qebul ede bilen platforma kimi qurulur. Default operator flow oldugu kimi qalir:
+
+```powershell
+Copy-Item .env.example .env
+make config
+make up
+make health
+make submit-flink-job
+make produce
+make spark-daily-kpi
+make import-superset-assets
+make console
+```
+
+Fleet vehicle telemetry ikinci stream application-dir ve delivery job-a toxunmadan ayrica isleyir:
+
+```powershell
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+```
+
+Bu ayrim 300-500 table scale ucun vacibdir: app metadata-si `configs/applications/`, dataset metadata-si `configs/datasets/`, JSON contract-lar ise `src/contracts/<domain>/` altinda saxlanilir. `delivery-events` topic-i delivery lifecycle event-leri ucundur; `vehicle-telemetry-events` topic-i fleet telemetry ucundur. ClickHouse-da da eyni ownership ayrimi var: `delivery.*` delivery operations, `fleet.*` fleet telemetry serving qatidir.
+
+Fleet telemetry obyektleri:
+
+- `configs/applications/fleet.yaml`
+- `configs/datasets/fleet/vehicle_telemetry.yaml`
+- `src/contracts/fleet/vehicle_telemetry_v1.schema.json`
+- `services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java`
+- `fleet.vehicle_telemetry_events`
+- `fleet.vehicle_current_state`
+- `fleet.vehicle_health_alerts`
+- `fleet.vehicle_metrics_5m`
+
 DeliveryFlow lokal Docker Compose üzərində qurulmuş data engineering layihəsidir. Layihə logistika domenində həm real-time delivery monitoring, həm də gündəlik batch analytics proseslərini göstərir.
 
 Bu README layihəyə ilk dəfə baxan biri üçün yazılıb: haradan başlamaq lazımdır, hansı servis nə edir, `make` komandaları hansı ardıcıllıqla işlədilir və pipeline-lar necə yoxlanılır.

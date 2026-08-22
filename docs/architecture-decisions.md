@@ -1,5 +1,28 @@
 # Architecture Decisions
 
+## ADR-000: Multi-Application Control Plane
+
+DeliveryFlow is no longer documented as a single-application demo. The repository now has a small control-plane structure that separates application metadata, dataset metadata, and event contracts:
+
+```text
+configs/applications/
+configs/datasets/
+src/contracts/<domain>/
+```
+
+Decision:
+
+- Keep the local platform simple, but make application ownership explicit.
+- Keep delivery as the default application.
+- Add fleet telemetry as an independent second application.
+- Select non-default app runtime with `APP=fleet`.
+- Keep Kafka topics domain-oriented, not one topic per table by default.
+- Keep ClickHouse serving schemas domain-oriented: `delivery.*` and `fleet.*`.
+
+The first implementation of this decision is `VehicleTelemetrySqlJob`, a Java Flink SQL/Table API job that reads `vehicle-telemetry-events` and writes to the `fleet` database. This is intentionally separate from `DeliveryStreamingJob`, which remains the Java DataStream implementation for delivery events.
+
+This decision prepares the project for 300-500 table growth without requiring one Python script, one Spark job, one Flink job, one Airflow DAG, and one Superset file per table.
+
 Bu sənəd DeliveryFlow layihəsində qəbul edilmiş əsas arxitektura qərarlarını izah edir. Qərarların məqsədi lokal lab üçün sadə, işlək və data engineering prinsiplərinə uyğun platforma qurmaqdır.
 
 ## Yüksək Səviyyəli Arxitektura

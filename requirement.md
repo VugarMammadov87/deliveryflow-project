@@ -2,6 +2,43 @@
 
 > **Document purpose:** This file is the single source of truth for the project's business requirements, architecture requirements, infrastructure requirements, development rules, and implementation constraints. The platform is intended for local development first, while applying production-grade data engineering principles where practical.
 
+## 0. Current Multi-Application Requirement Update
+
+The repository must support more than one application without turning every future table into a separate custom script, job, DAG, and dashboard file.
+
+Current approved applications:
+
+- `delivery`: default application for delivery lifecycle events.
+- `fleet`: second stream application for vehicle telemetry events.
+
+Application metadata must live under `configs/applications/`. Dataset metadata must live under `configs/datasets/`. Versioned event contracts must live under `src/contracts/<domain>/`. Runtime commands may select an application with `APP=<name>` when the application has a distinct execution path.
+
+The default delivery flow must continue to work:
+
+```powershell
+make submit-flink-job
+make produce
+make test-e2e
+```
+
+The fleet telemetry flow must be available separately:
+
+```powershell
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+```
+
+The fleet application must use:
+
+- Kafka topic: `vehicle-telemetry-events`
+- JSON contract: `src/contracts/fleet/vehicle_telemetry_v1.schema.json`
+- Flink job: `services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java`
+- ClickHouse schema: `fleet`
+- ClickHouse outputs: `vehicle_telemetry_events`, `vehicle_current_state`, `vehicle_health_alerts`, `vehicle_metrics_5m`
+
+This requirement exists to prepare the project for 300-500 source and target tables, multiple ETL applications, multiple stream workloads, and multiple BI domains while keeping the local developer workflow simple.
+
 ## 1. Project Overview
 
 The company manages transportation and deliveries from multiple warehouses to stores and customers.

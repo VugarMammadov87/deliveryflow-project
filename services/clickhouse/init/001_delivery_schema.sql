@@ -172,3 +172,78 @@ SELECT
     uniqExact(delivery_id) AS delivery_count
 FROM delivery.delivery_events
 GROUP BY event_hour, event_type, region;
+
+CREATE DATABASE IF NOT EXISTS fleet;
+
+CREATE TABLE IF NOT EXISTS fleet.vehicle_telemetry_events
+(
+    schema_version UInt16,
+    event_id String,
+    event_type LowCardinality(String),
+    event_timestamp DateTime64(3, 'UTC'),
+    ingestion_timestamp DateTime64(3, 'UTC'),
+    vehicle_id String,
+    driver_id String,
+    latitude Float64,
+    longitude Float64,
+    speed_kmh Float64,
+    fuel_level_pct Float64,
+    engine_temperature_c Float64,
+    odometer_km Float64,
+    engine_status LowCardinality(String),
+    vehicle_status LowCardinality(String),
+    processed_at DateTime64(3, 'UTC') DEFAULT now64(3)
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(event_timestamp)
+ORDER BY (vehicle_id, event_timestamp, event_id)
+TTL toDateTime(event_timestamp) + INTERVAL 30 DAY;
+
+CREATE TABLE IF NOT EXISTS fleet.vehicle_current_state
+(
+    vehicle_id String,
+    event_id String,
+    last_event_timestamp DateTime64(3, 'UTC'),
+    driver_id String,
+    latitude Float64,
+    longitude Float64,
+    speed_kmh Float64,
+    fuel_level_pct Float64,
+    engine_temperature_c Float64,
+    odometer_km Float64,
+    engine_status LowCardinality(String),
+    vehicle_status LowCardinality(String),
+    version UInt64
+)
+ENGINE = ReplacingMergeTree(version)
+ORDER BY vehicle_id;
+
+CREATE TABLE IF NOT EXISTS fleet.vehicle_health_alerts
+(
+    event_id String,
+    vehicle_id String,
+    event_timestamp DateTime64(3, 'UTC'),
+    alert_type LowCardinality(String),
+    severity LowCardinality(String),
+    observed_value Float64,
+    threshold Float64
+)
+ENGINE = MergeTree
+PARTITION BY toYYYYMM(event_timestamp)
+ORDER BY (alert_type, vehicle_id, event_timestamp, event_id);
+
+CREATE TABLE IF NOT EXISTS fleet.vehicle_metrics_5m
+(
+    window_start DateTime64(3, 'UTC'),
+    window_end DateTime64(3, 'UTC'),
+    active_vehicle_count UInt64,
+    avg_speed_kmh Float64,
+    avg_fuel_level_pct Float64,
+    max_engine_temperature_c Float64,
+    overspeed_vehicle_count UInt64,
+    low_fuel_vehicle_count UInt64,
+    version UInt64
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY toYYYYMM(window_start)
+ORDER BY window_start;

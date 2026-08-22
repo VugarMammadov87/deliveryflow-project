@@ -1,5 +1,22 @@
 # Superset Serving Strategy
 
+## Current BI Scope
+
+Superset BI-as-code currently covers the `delivery` application dashboard and its five approved statistics. The new `fleet` stream application writes serving tables into ClickHouse `fleet.*`, but no fleet Superset dashboard is imported yet.
+
+This separation is intentional:
+
+- `delivery` BI assets stay in `configs/superset/deliveryflow_bi.yaml`.
+- `fleet` serving tables are ready for future BI assets.
+- Future domains should use separate BI metadata instead of putting every dashboard into one YAML file.
+
+Fleet tables available for future Superset datasets:
+
+- `fleet.vehicle_telemetry_events`
+- `fleet.vehicle_current_state`
+- `fleet.vehicle_health_alerts`
+- `fleet.vehicle_metrics_5m`
+
 Bu sənəd DeliveryFlow layihəsində BI serving strategiyasını izah edir. Layihədə BI və dashboard qatı üçün Apache Superset istifadə olunur. Superset Docker Compose daxilində işləyir və ClickHouse-dakı hazır serving cədvəllərini və view-ları oxuyur.
 
 ## Niyə Superset?

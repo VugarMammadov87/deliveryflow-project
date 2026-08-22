@@ -17,6 +17,7 @@ NESSIE_PORT ?= 19120
 NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
+APP ?= delivery
 
 .PHONY: help config build pull up down clean clean-keep-images purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
@@ -41,11 +42,13 @@ help:
 	@echo "  make url-kafka-ui        Show Kafka UI URL"
 	@echo "  make logs-kafka-ui       Tail Kafka UI logs"
 	@echo "  make produce             Generate synthetic batch source rows and stream events"
+	@echo "  make produce APP=fleet   Generate fleet vehicle telemetry events"
 	@echo "  make produce-stream      Generate Kafka stream events only"
 	@echo "  make produce-continuous  Start a background stream producer that emits one event every 10 minutes"
 	@echo "  make stop-continuous-producer Stop the background continuous stream producer"
 	@echo "  make seed-batch-source   Generate PostgreSQL batch source rows only"
 	@echo "  make submit-flink-job    Submit the Kafka -> Flink -> ClickHouse job"
+	@echo "  make submit-flink-job APP=fleet Submit the fleet telemetry Flink SQL job"
 	@echo "  make import-superset-assets Import Superset database, datasets, charts, and dashboard from YAML"
 	@echo "  make spark-iceberg-test  Validate Spark -> Nessie -> Iceberg -> S3"
 	@echo "  make spark-daily-kpi     Run daily Spark KPI publication"
@@ -181,14 +184,23 @@ init-topics:
 	$(COMPOSE) run --rm kafka-init
 
 submit-flink-job:
-	$(COMPOSE) run --rm flink-job-submit
+	@if [ "$(APP)" = "fleet" ]; then \
+		$(COMPOSE) build flink-jobmanager; \
+		$(COMPOSE) run --rm flink-job-submit-fleet; \
+	else \
+		$(COMPOSE) run --rm flink-job-submit; \
+	fi
 
 import-superset-assets:
 	$(COMPOSE) build superset-importer
 	$(COMPOSE) run --rm superset-importer
 
 produce:
-	$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer
+	@if [ "$(APP)" = "fleet" ]; then \
+		$(COMPOSE) run --rm -e PRODUCER_APP=fleet -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer; \
+	else \
+		$(COMPOSE) run --rm producer python -m producers.synthetic_logistics_producer; \
+	fi
 
 produce-stream:
 	$(COMPOSE) run --rm -e PRODUCER_MODE=stream producer python -m producers.synthetic_logistics_producer
@@ -212,7 +224,11 @@ airflow-dag-list:
 	$(COMPOSE) exec airflow-scheduler airflow dags list
 
 test-e2e:
-	$(COMPOSE) run --rm producer python /app/scripts/e2e_smoke_test.py
+	@if [ "$(APP)" = "fleet" ]; then \
+		$(COMPOSE) run --rm -e E2E_APP=fleet producer python /app/scripts/e2e_smoke_test.py; \
+	else \
+		$(COMPOSE) run --rm producer python /app/scripts/e2e_smoke_test.py; \
+	fi
 
 clean-warning:
 	@echo "Destructive cleanup is intentionally not implemented as a default target."

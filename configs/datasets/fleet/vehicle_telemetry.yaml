@@ -1,0 +1,37 @@
+dataset_id: fleet.vehicle_telemetry
+application: fleet
+domain: fleet-operations
+description: Vehicle telemetry stream used for fleet health monitoring.
+source:
+  type: kafka
+  topic: vehicle-telemetry-events
+  key: vehicle_id
+contract: src/contracts/fleet/vehicle_telemetry_v1.schema.json
+processing:
+  engine: flink-sql
+  job_name: fleet-vehicle-telemetry-sql
+  event_time_column: event_timestamp
+  watermark_lag_seconds: 10
+targets:
+  clickhouse:
+    database: fleet
+    tables:
+      - vehicle_telemetry_events
+      - vehicle_current_state
+      - vehicle_health_alerts
+      - vehicle_metrics_5m
+quality:
+  not_null:
+    - event_id
+    - event_timestamp
+    - vehicle_id
+  accepted_values:
+    engine_status:
+      - RUNNING
+      - IDLE
+      - OFF
+owner:
+  team: logistics-data-platform
+sla:
+  freshness_minutes: 5
+criticality: medium

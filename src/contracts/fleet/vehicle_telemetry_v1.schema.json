@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://deliveryflow.local/contracts/fleet/vehicle_telemetry_v1.schema.json",
+  "title": "Vehicle Telemetry Event V1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "event_timestamp",
+    "ingestion_timestamp",
+    "vehicle_id",
+    "driver_id",
+    "latitude",
+    "longitude",
+    "speed_kmh",
+    "fuel_level_pct",
+    "engine_temperature_c",
+    "odometer_km",
+    "engine_status",
+    "vehicle_status"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": { "const": "VEHICLE_TELEMETRY" },
+    "event_timestamp": { "type": "string", "format": "date-time" },
+    "ingestion_timestamp": { "type": "string", "format": "date-time" },
+    "vehicle_id": { "type": "string", "pattern": "^VEH-[0-9]{3}$" },
+    "driver_id": { "type": "string", "pattern": "^DRV-[0-9]{3}$" },
+    "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+    "longitude": { "type": "number", "minimum": -180, "maximum": 180 },
+    "speed_kmh": { "type": "number", "minimum": 0, "maximum": 180 },
+    "fuel_level_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+    "engine_temperature_c": { "type": "number", "minimum": -40, "maximum": 160 },
+    "odometer_km": { "type": "number", "minimum": 0 },
+    "engine_status": {
+      "type": "string",
+      "enum": ["RUNNING", "IDLE", "OFF"]
+    },
+    "vehicle_status": {
+      "type": "string",
+      "enum": ["IN_TRANSIT", "IDLE", "MAINTENANCE", "OFFLINE"]
+    }
+  },
+  "additionalProperties": false
+}

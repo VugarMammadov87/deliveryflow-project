@@ -71,7 +71,12 @@ def kafka_check() -> Check:
         )
         topics = consumer.topics()
         consumer.close()
-        return Check("Kafka", "delivery-events" in topics, f"topics={sorted(topics)}")
+        required_topics = {
+            os.getenv("KAFKA_TOPIC", "delivery-events"),
+            os.getenv("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", "vehicle-telemetry-events"),
+        }
+        missing_topics = required_topics.difference(topics)
+        return Check("Kafka", not missing_topics, f"topics={sorted(topics)} missing={sorted(missing_topics)}")
     except Exception as exc:
         return Check("Kafka", False, str(exc))
 

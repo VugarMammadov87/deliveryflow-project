@@ -7,6 +7,37 @@
 
 ---
 
+# 0. Current Multi-Application Update
+
+The scalability prompt `DeliveryFlow_Scalability_and_Flink_SQL_Prompts.md` has been applied as an implementation phase.
+
+Completed changes:
+
+- Add control-plane style metadata folders: `configs/applications/` and `configs/datasets/`.
+- Keep the delivery application as the default flow.
+- Add `fleet` as a second stream application.
+- Add versioned fleet JSON contract under `src/contracts/fleet/`.
+- Add Java Flink SQL/Table API job for vehicle telemetry.
+- Add ClickHouse `fleet` database tables for raw telemetry, latest state, alerts, and five-minute metrics.
+- Extend Makefile command routing with `APP=fleet`.
+- Extend health and smoke-test scripts so both delivery and fleet topics/paths are validated.
+
+Operational commands:
+
+```powershell
+make submit-flink-job
+make produce
+make test-e2e
+
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+```
+
+This phase directly supports the 300-500 table target by moving future application-specific details into metadata and contracts instead of scattering them across unrelated scripts.
+
+---
+
 # 1. Purpose
 
 This plan translates `requirement.md` into an incremental, approval-gated implementation roadmap for the local data platform.

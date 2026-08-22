@@ -94,7 +94,9 @@ services:
       - -lc
       - |
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic ${KAFKA_TOPIC_DELIVERY_EVENTS} --partitions ${KAFKA_TOPIC_PARTITIONS} --replication-factor ${KAFKA_TOPIC_REPLICATION_FACTOR}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events} --partitions ${KAFKA_TOPIC_PARTITIONS} --replication-factor ${KAFKA_TOPIC_REPLICATION_FACTOR}
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic ${KAFKA_TOPIC_DELIVERY_EVENTS}
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
     networks:
       - delivery-platform-net
 
@@ -393,10 +395,15 @@ services:
         execution.checkpointing.interval: 10000
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      FLEET_CLICKHOUSE_DATABASE: ${FLEET_CLICKHOUSE_DATABASE:-fleet}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      FLEET_OVERSPEED_THRESHOLD_KMH: ${FLEET_OVERSPEED_THRESHOLD_KMH:-100}
+      FLEET_LOW_FUEL_THRESHOLD_PCT: ${FLEET_LOW_FUEL_THRESHOLD_PCT:-15}
+      FLEET_ENGINE_TEMPERATURE_THRESHOLD_C: ${FLEET_ENGINE_TEMPERATURE_THRESHOLD_C:-105}
     ports:
       - "${FLINK_UI_PORT}:8081"
     healthcheck:
@@ -421,10 +428,15 @@ services:
         parallelism.default: ${FLINK_PARALLELISM}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      FLEET_CLICKHOUSE_DATABASE: ${FLEET_CLICKHOUSE_DATABASE:-fleet}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      FLEET_OVERSPEED_THRESHOLD_KMH: ${FLEET_OVERSPEED_THRESHOLD_KMH:-100}
+      FLEET_LOW_FUEL_THRESHOLD_PCT: ${FLEET_LOW_FUEL_THRESHOLD_PCT:-15}
+      FLEET_ENGINE_TEMPERATURE_THRESHOLD_C: ${FLEET_ENGINE_TEMPERATURE_THRESHOLD_C:-105}
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f TaskManagerRunner >/dev/null"]
       interval: 10s
@@ -448,6 +460,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
       CLICKHOUSE_URL: http://clickhouse:8123
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER}
@@ -460,6 +473,40 @@ services:
           echo "Flink job deliveryflow-kafka-flink-clickhouse is already RUNNING"
         else
           /opt/flink/bin/flink run -m flink-jobmanager:8081 -d /opt/flink/usrlib/delivery-flink-job.jar
+        fi
+    networks:
+      - delivery-platform-net
+
+  flink-job-submit-fleet:
+    image: ${FLINK_IMAGE}
+    container_name: deliveryflow-flink-job-submit-fleet
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      FLEET_CLICKHOUSE_DATABASE: ${FLEET_CLICKHOUSE_DATABASE:-fleet}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      FLEET_OVERSPEED_THRESHOLD_KMH: ${FLEET_OVERSPEED_THRESHOLD_KMH:-100}
+      FLEET_LOW_FUEL_THRESHOLD_PCT: ${FLEET_LOW_FUEL_THRESHOLD_PCT:-15}
+      FLEET_ENGINE_TEMPERATURE_THRESHOLD_C: ${FLEET_ENGINE_TEMPERATURE_THRESHOLD_C:-105}
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if wget -qO- http://flink-jobmanager:8081/jobs/overview | grep -q '"name":"fleet-vehicle-telemetry-sql".*"state":"RUNNING"'; then
+          echo "Flink job fleet-vehicle-telemetry-sql is already RUNNING"
+        else
+          /opt/flink/bin/flink run -m flink-jobmanager:8081 -d -c local.deliveryflow.VehicleTelemetrySqlJob /opt/flink/usrlib/delivery-flink-job.jar
         fi
     networks:
       - delivery-platform-net
@@ -478,6 +525,8 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
+      PRODUCER_APP: ${PRODUCER_APP:-delivery}
       PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
       PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
       PRODUCER_MODE: ${PRODUCER_MODE}
@@ -506,6 +555,8 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
+      PRODUCER_APP: delivery
       PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
       PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
       PRODUCER_MODE: stream

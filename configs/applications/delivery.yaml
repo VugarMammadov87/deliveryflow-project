@@ -1,0 +1,17 @@
+application: delivery
+domain: logistics
+owner:
+  team: logistics-data-platform
+streaming:
+  enabled: true
+  job_name: delivery-monitoring-stream
+  api: flink-datastream
+  kafka_topic: delivery-events
+batch:
+  enabled: true
+  spark_app: deliveryflow-daily-kpi
+serving:
+  clickhouse_database: delivery
+bi:
+  superset: true
+  dashboard_slug: deliveryflow-operations

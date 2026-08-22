@@ -1,5 +1,38 @@
 # DeliveryFlow Application Workflow
 
+## Multi-Application Workflow Update
+
+DeliveryFlow now contains two stream applications. The original delivery application remains the default path, and the fleet vehicle telemetry application is selected explicitly with `APP=fleet`.
+
+Delivery operations:
+
+```text
+Synthetic producer -> Kafka delivery-events -> DeliveryStreamingJob -> ClickHouse delivery.* -> Superset
+```
+
+Fleet telemetry:
+
+```text
+Synthetic producer APP=fleet -> Kafka vehicle-telemetry-events -> VehicleTelemetrySqlJob -> ClickHouse fleet.*
+```
+
+Fleet telemetry is implemented with Java + Flink SQL/Table API so the repository demonstrates a second streaming style without changing the existing Java DataStream delivery job. The job writes raw telemetry, current vehicle state, health alerts, and five-minute metrics into the `fleet` ClickHouse database.
+
+Fleet commands:
+
+```powershell
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+```
+
+Fleet ownership files:
+
+- `configs/applications/fleet.yaml`
+- `configs/datasets/fleet/vehicle_telemetry.yaml`
+- `src/contracts/fleet/vehicle_telemetry_v1.schema.json`
+- `services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java`
+
 Bu sənəd DeliveryFlow layihəsində tətbiqlərin, servislərin, batch və stream proseslərinin necə işlədiyini addım-addım izah edir. Məqsəd yalnız "hansı servis var" sualına cavab vermək deyil; məqsəd data-nın hansı mənbədən çıxdığını, hansı servisdən keçdiyini, harada saxlandığını və Superset-də necə hesabat kimi göründüyünü aydın göstərməkdir.
 
 ## Ümumi Məntiq

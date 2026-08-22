@@ -38,6 +38,8 @@ class ProducerConfig:
     batch_rows: int
     continuous: bool
     continuous_interval_seconds: float
+    app: str
+    fleet_topic: str
 
     @classmethod
     def from_env(cls) -> "ProducerConfig":
@@ -51,6 +53,8 @@ class ProducerConfig:
             batch_rows=int(os.getenv("PRODUCER_BATCH_ROWS", "40")),
             continuous=os.getenv("PRODUCER_CONTINUOUS", "false").lower() in {"1", "true", "yes"},
             continuous_interval_seconds=float(os.getenv("PRODUCER_CONTINUOUS_INTERVAL_SECONDS", "600")),
+            app=os.getenv("PRODUCER_APP", "delivery").lower(),
+            fleet_topic=os.getenv("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", "vehicle-telemetry-events"),
         )
 
 
@@ -143,6 +147,40 @@ def build_event(index: int, rng: Random) -> dict[str, Any]:
             "traffic_condition": traffic,
             "weather_condition": weather,
         },
+    }
+
+
+def build_vehicle_telemetry_event(index: int, rng: Random) -> dict[str, Any]:
+    """Build one fleet telemetry event for the independent fleet application.
+
+    The values are deterministic enough for tests and demos, but still varied
+    enough to trigger overspeed, low-fuel, and engine-temperature alert paths in
+    the Flink SQL job.
+    """
+    now = datetime.now(UTC).replace(microsecond=0)
+    vehicle_number = 101 + (index % 8)
+    speed_sequence = [62.0, 108.0, 75.0, 70.0, 95.0, 42.0]
+    fuel_sequence = [68.0, 66.0, 14.0, 13.0, 22.0, 49.0]
+    temperature_sequence = [88.0, 91.0, 94.0, 108.0, 99.0, 85.0]
+    engine_status = "IDLE" if index % 6 == 5 else "RUNNING"
+    vehicle_status = "IDLE" if engine_status == "IDLE" else "IN_TRANSIT"
+
+    return {
+        "schema_version": 1,
+        "event_id": str(uuid.uuid4()),
+        "event_type": "VEHICLE_TELEMETRY",
+        "event_timestamp": now.isoformat().replace("+00:00", "Z"),
+        "ingestion_timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "vehicle_id": f"VEH-{vehicle_number:03d}",
+        "driver_id": f"DRV-{(vehicle_number % 20) + 1:03d}",
+        "latitude": 40.4093 + rng.uniform(-0.08, 0.08),
+        "longitude": 49.8671 + rng.uniform(-0.08, 0.08),
+        "speed_kmh": speed_sequence[index % len(speed_sequence)],
+        "fuel_level_pct": fuel_sequence[index % len(fuel_sequence)],
+        "engine_temperature_c": temperature_sequence[index % len(temperature_sequence)],
+        "odometer_km": round(145000.0 + (index * 7.8) + rng.uniform(0, 3), 2),
+        "engine_status": engine_status,
+        "vehicle_status": vehicle_status,
     }
 
 
@@ -283,11 +321,54 @@ def publish_stream_events(config: ProducerConfig, rng: Random) -> None:
     producer.close(timeout=10)
 
 
+def publish_fleet_telemetry_events(config: ProducerConfig, rng: Random) -> None:
+    """Publish fleet telemetry events to the fleet-specific Kafka topic."""
+    from kafka import KafkaProducer
+
+    producer = KafkaProducer(
+        bootstrap_servers=config.bootstrap_servers,
+        key_serializer=lambda value: value.encode("utf-8"),
+        value_serializer=lambda value: json.dumps(value, separators=(",", ":")).encode("utf-8"),
+        acks="all",
+        retries=5,
+        linger_ms=50,
+    )
+
+    index = 0
+    while config.continuous or index < config.event_count:
+        event = build_vehicle_telemetry_event(index, rng)
+        producer.send(config.fleet_topic, key=event["vehicle_id"], value=event)
+        LOG.info(
+            "published fleet event_id=%s vehicle_id=%s speed=%s fuel=%s temperature=%s",
+            event["event_id"],
+            event["vehicle_id"],
+            event["speed_kmh"],
+            event["fuel_level_pct"],
+            event["engine_temperature_c"],
+        )
+        producer.flush(timeout=30)
+        index += 1
+        if config.continuous:
+            time.sleep(config.continuous_interval_seconds)
+        elif index < config.event_count:
+            time.sleep(config.interval_seconds)
+
+    producer.flush(timeout=30)
+    producer.close(timeout=10)
+
+
 def main() -> None:
     """Entrypoint used by Docker Compose, Makefile targets, and smoke tests."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     config = ProducerConfig.from_env()
     rng = Random(42)
+
+    if config.app not in {"delivery", "fleet"}:
+        raise ValueError("PRODUCER_APP must be one of: delivery, fleet")
+
+    if config.app == "fleet":
+        publish_fleet_telemetry_events(config, rng)
+        return
 
     if config.mode not in {"stream", "batch", "both"}:
         raise ValueError("PRODUCER_MODE must be one of: stream, batch, both")
