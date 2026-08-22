@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Daily batch KPI job for DeliveryFlow.
+
+This Spark application exists to bridge the streaming serving layer and the
+analytical lakehouse path. It reads operational delivery events from ClickHouse,
+writes raw and gold Iceberg tables through Nessie, then publishes dashboard-ready
+daily KPI rows back to ClickHouse for Superset.
+"""
+
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -11,6 +19,8 @@ from pyspark.sql import functions as F
 
 @dataclass(frozen=True)
 class ClickHouseConfig:
+    """ClickHouse connection settings shared by Spark JDBC and Python inserts."""
+
     host: str
     http_port: int
     database: str
@@ -20,6 +30,7 @@ class ClickHouseConfig:
 
     @classmethod
     def from_env(cls) -> "ClickHouseConfig":
+        """Load local/container ClickHouse settings without hardcoding runtime env."""
         return cls(
             host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
             http_port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
@@ -30,11 +41,14 @@ class ClickHouseConfig:
 
     @property
     def jdbc_url(self) -> str:
+        """Build the Spark JDBC URL used when reading ClickHouse events."""
         return f"jdbc:clickhouse://{self.host}:{self.http_port}/{self.database}"
 
 
 @dataclass(frozen=True)
 class DailyKpiJobConfig:
+    """Table names and application identity for the daily KPI job."""
+
     app_name: str = "deliveryflow-daily-kpi"
     raw_table: str = "nessie.bronze.raw_delivery_events"
     gold_table: str = "nessie.gold.daily_delivery_kpi"
@@ -43,12 +57,19 @@ class DailyKpiJobConfig:
 
 
 class DeliveryEventReader:
+    """Read event facts from ClickHouse into Spark.
+
+    The reader isolates JDBC details from transformation logic so the KPI code
+    can work with a normal Spark DataFrame.
+    """
+
     def __init__(self, spark: SparkSession, clickhouse: ClickHouseConfig, source_table: str) -> None:
         self.spark = spark
         self.clickhouse = clickhouse
         self.source_table = source_table
 
     def read(self) -> DataFrame:
+        """Load the selected ClickHouse event fields required for KPI output."""
         return (
             self.spark.read.format("jdbc")
             .option("url", self.clickhouse.jdbc_url)
@@ -60,6 +81,7 @@ class DeliveryEventReader:
         )
 
     def _source_query(self) -> str:
+        """Return a JDBC subquery that normalizes ClickHouse timestamp output."""
         return f"""
             (
                 SELECT
@@ -97,7 +119,10 @@ class DeliveryEventReader:
 
 
 class DeliveryEventTransformer:
+    """Derive analytical columns and aggregate daily delivery KPIs."""
+
     def enrich(self, events: DataFrame) -> DataFrame:
+        """Add reusable business flags used by both raw and gold outputs."""
         return (
             events.withColumn("event_timestamp", F.to_timestamp("event_timestamp"))
             .withColumn("business_date", F.to_date("event_timestamp"))
@@ -110,6 +135,7 @@ class DeliveryEventTransformer:
         )
 
     def build_daily_kpi(self, enriched: DataFrame) -> DataFrame:
+        """Aggregate delivery performance by business date, region, and warehouse."""
         denominator = F.greatest(F.lit(1), F.col("completed_deliveries") + F.col("delayed_deliveries"))
         return (
             enriched.groupBy("business_date", "region", "warehouse_id")
@@ -131,16 +157,20 @@ class DeliveryEventTransformer:
 
 
 class IcebergDailyKpiRepository:
+    """Persist raw and gold KPI data into Nessie-managed Iceberg tables."""
+
     def __init__(self, spark: SparkSession, raw_table: str, gold_table: str) -> None:
         self.spark = spark
         self.raw_table = raw_table
         self.gold_table = gold_table
 
     def prepare_namespaces(self) -> None:
+        """Create Iceberg namespaces so the job is repeatable on fresh volumes."""
         self.spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.bronze")
         self.spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.gold")
 
     def write_raw_events(self, enriched: DataFrame) -> None:
+        """Write deduplicated raw events as the bronze analytical table."""
         (
             enriched.select(
                 "schema_version",
@@ -181,10 +211,13 @@ class IcebergDailyKpiRepository:
         )
 
     def write_gold_kpi(self, kpi: DataFrame) -> None:
+        """Write aggregated daily KPI rows as the gold analytical table."""
         kpi.writeTo(self.gold_table).using("iceberg").partitionedBy(F.col("business_date")).createOrReplace()
 
 
 class ClickHouseDailyKpiPublisher:
+    """Publish Spark KPI results back into ClickHouse for Superset serving."""
+
     columns = [
         "business_date",
         "region",
@@ -208,6 +241,7 @@ class ClickHouseDailyKpiPublisher:
         self.target_table = target_table
 
     def publish(self, kpi: DataFrame) -> None:
+        """Collect the small KPI result set and insert it into ClickHouse."""
         rows = kpi.select(*self.columns).collect()
         client = clickhouse_connect.get_client(
             host=self.clickhouse.host,
@@ -223,6 +257,8 @@ class ClickHouseDailyKpiPublisher:
 
 
 class DailyKpiJob:
+    """Coordinate the end-to-end daily KPI batch workflow."""
+
     def __init__(self, spark: SparkSession, config: DailyKpiJobConfig, clickhouse: ClickHouseConfig) -> None:
         self.spark = spark
         self.config = config
@@ -233,11 +269,13 @@ class DailyKpiJob:
 
     @classmethod
     def create(cls) -> "DailyKpiJob":
+        """Construct the job from default config and environment variables."""
         config = DailyKpiJobConfig()
         spark = SparkSession.builder.appName(config.app_name).getOrCreate()
         return cls(spark=spark, config=config, clickhouse=ClickHouseConfig.from_env())
 
     def run(self) -> None:
+        """Run read, transform, Iceberg persistence, and ClickHouse publication."""
         events = self.reader.read()
         if events.rdd.isEmpty():
             raise RuntimeError("No delivery events found in ClickHouse for KPI calculation")
@@ -253,10 +291,12 @@ class DailyKpiJob:
         print("DAILY_KPI_JOB_OK")
 
     def close(self) -> None:
+        """Stop Spark so containerized runs release executor resources cleanly."""
         self.spark.stop()
 
 
 def main() -> None:
+    """Script entrypoint used by `spark-submit` and Airflow."""
     job = DailyKpiJob.create()
     try:
         job.run()

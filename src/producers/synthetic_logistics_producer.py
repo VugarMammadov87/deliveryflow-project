@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Synthetic logistics data generator for stream and batch demos.
+
+This module exists to give the local DeliveryFlow platform realistic,
+repeatable logistics data without depending on an external source system. The
+same domain model feeds Kafka events for the streaming path and PostgreSQL
+source rows for the batch path, which keeps dashboard and KPI examples coherent.
+"""
+
 import json
 import logging
 import os
@@ -15,6 +23,13 @@ LOG = logging.getLogger("deliveryflow.producer")
 
 @dataclass(frozen=True)
 class ProducerConfig:
+    """Runtime settings for Kafka publishing and source seeding.
+
+    The values come from environment variables so Docker Compose, Makefile
+    targets, and smoke tests can run the same generator in different modes
+    without changing code.
+    """
+
     bootstrap_servers: str
     topic: str
     event_count: int
@@ -26,6 +41,7 @@ class ProducerConfig:
 
     @classmethod
     def from_env(cls) -> "ProducerConfig":
+        """Build producer settings from local defaults and container env vars."""
         return cls(
             bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
             topic=os.getenv("KAFKA_TOPIC", "delivery-events"),
@@ -40,6 +56,8 @@ class ProducerConfig:
 
 @dataclass(frozen=True)
 class SourceDbConfig:
+    """Connection settings for the PostgreSQL operational source database."""
+
     host: str
     port: int
     dbname: str
@@ -48,6 +66,7 @@ class SourceDbConfig:
 
     @classmethod
     def from_env(cls) -> "SourceDbConfig":
+        """Read PostgreSQL source settings from environment variables."""
         return cls(
             host=os.getenv("SOURCE_DB_HOST", "localhost"),
             port=int(os.getenv("SOURCE_DB_PORT", "15433")),
@@ -58,6 +77,12 @@ class SourceDbConfig:
 
 
 def build_event(index: int, rng: Random) -> dict[str, Any]:
+    """Build one versioned logistics event used by Kafka and source seeding.
+
+    The event intentionally includes identifiers, route/vehicle metadata,
+    service-level fields, and delay/utilization facts because downstream Flink,
+    Spark, ClickHouse, and Superset examples all depend on those dimensions.
+    """
     statuses = ["ORDER_LOADED", "VEHICLE_DEPARTED", "IN_TRANSIT", "DELIVERY_DELAYED", "DELIVERED"]
     regions = ["baku", "absheron", "ganja", "sumgait"]
     service_levels = ["standard", "express", "same_day"]
@@ -122,6 +147,12 @@ def build_event(index: int, rng: Random) -> dict[str, Any]:
 
 
 def seed_batch_source(row_count: int, rng: Random) -> None:
+    """Populate PostgreSQL source tables with coherent logistics entities.
+
+    The batch path needs relational source tables, not only Kafka events. This
+    function derives warehouses, vehicles, drivers, orders, shipments, and
+    delivery plans from the same generated event so joins remain consistent.
+    """
     import psycopg2
 
     config = SourceDbConfig.from_env()
@@ -219,6 +250,12 @@ def seed_batch_source(row_count: int, rng: Random) -> None:
 
 
 def publish_stream_events(config: ProducerConfig, rng: Random) -> None:
+    """Publish generated delivery events to Kafka for the Flink stream job.
+
+    The delivery id is used as the Kafka key so events for the same delivery are
+    naturally grouped by downstream keyed operators. Continuous mode supports a
+    long-running demo producer that keeps Superset charts changing over time.
+    """
     from kafka import KafkaProducer
 
     producer = KafkaProducer(
@@ -247,6 +284,7 @@ def publish_stream_events(config: ProducerConfig, rng: Random) -> None:
 
 
 def main() -> None:
+    """Entrypoint used by Docker Compose, Makefile targets, and smoke tests."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     config = ProducerConfig.from_env()
     rng = Random(42)

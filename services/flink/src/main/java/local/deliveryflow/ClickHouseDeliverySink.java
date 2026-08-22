@@ -9,12 +9,21 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 
+/**
+ * Flink sink that writes delivery stream results into ClickHouse serving tables.
+ *
+ * <p>The sink writes three projections for different dashboard needs: immutable
+ * event history, latest delivery state, and latest vehicle state. It uses
+ * ClickHouse HTTP JSONEachRow inserts to keep the local lab dependency-light and
+ * easy to inspect from Docker Compose.</p>
+ */
 public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
     private final String clickhouseUrl;
     private final String database;
     private final String user;
     private final String password;
 
+    /** Store ClickHouse connection settings supplied by the Flink job. */
     public ClickHouseDeliverySink(String clickhouseUrl, String database, String user, String password) {
         this.clickhouseUrl = clickhouseUrl;
         this.database = database;
@@ -27,6 +36,13 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
         // No persistent connection is kept; this is intentionally simple for local bootstrap.
     }
 
+    /**
+     * Write one event into all operational serving projections.
+     *
+     * <p>The event timestamp becomes the replacing-table version, which lets
+     * ClickHouse keep the newest current-state row while still retaining the
+     * immutable event history separately.</p>
+     */
     @Override
     public void invoke(DeliveryEvent event, Context context) throws Exception {
         long version = Instant.parse(event.eventTimestamp.replace("Z", "Z")).toEpochMilli();
@@ -43,6 +59,7 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
         postSql(vehicleSql);
     }
 
+    /** Send a SQL statement to ClickHouse over HTTP and fail on non-2xx status. */
     private void postSql(String sql) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) URI.create(clickhouseUrl + "/?user=" + user + "&password=" + password).toURL().openConnection();
         connection.setRequestMethod("POST");
@@ -58,6 +75,7 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
         }
     }
 
+    /** Render nullable timestamp fields in the JSONEachRow format ClickHouse expects. */
     private String nullableTimestamp(String value) {
         if (value == null || value.isBlank()) {
             return "null";
@@ -65,10 +83,12 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
         return quote(value.replace("Z", ""));
     }
 
+    /** Escape a Java string as a JSON string literal for manually built rows. */
     private String quote(String value) {
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
+    /** Build the immutable delivery_events history row consumed by batch and BI. */
     private String toHistoryJson(DeliveryEvent event) {
         return "{"
             + "\"schema_version\":" + event.schemaVersion + ","
@@ -105,6 +125,7 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
             + "}";
     }
 
+    /** Build the latest delivery state row used by operational dashboard views. */
     private String toCurrentJson(DeliveryEvent event, double utilization, int isDelayed, long version) {
         return "{"
             + "\"delivery_id\":" + quote(event.deliveryId) + ","
@@ -141,6 +162,7 @@ public class ClickHouseDeliverySink extends RichSinkFunction<DeliveryEvent> {
             + "}";
     }
 
+    /** Build the latest vehicle state row used by utilization dashboard views. */
     private String toVehicleJson(DeliveryEvent event, double utilization, long version) {
         return "{"
             + "\"vehicle_id\":" + quote(event.vehicleId) + ","

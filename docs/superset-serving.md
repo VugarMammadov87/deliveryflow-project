@@ -350,7 +350,15 @@ http://localhost:8088
 clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
 ```
 
-4. Dataset-ləri əlavə et:
+4. Superset obyektlərini BI-as-code import et:
+
+```powershell
+make import-superset-assets
+```
+
+Bu command `configs/superset/deliveryflow_bi.yaml` faylından database, dataset, chart və dashboard obyektlərini yaradır və ya yeniləyir.
+
+5. Dataset-lərin yarandığını yoxla:
 
 ```text
 v_delivery_status_overview
@@ -360,7 +368,11 @@ v_warehouse_daily_kpi
 v_delivery_event_volume
 ```
 
-5. Chart-ları yarat və bir dashboard-a yığ.
+6. Dashboard-u aç:
+
+```text
+http://localhost:8088/superset/dashboard/deliveryflow-operations/
+```
 
 ## Debug və Yoxlama
 
@@ -412,6 +424,8 @@ Bu YAML fayli asagidaki obyektler ucun source of truth rolunu oynayir:
 - datasets: 5 ClickHouse report view-u
 - charts: 5 operational/statistical report
 - dashboard: `DeliveryFlow Operations Dashboard`
+- temporal metadata: `business_date` ve `event_hour`
+- chart metric metadata: Superset adhoc metric formatina cevrilen YAML metric adlari
 
 Import script:
 
@@ -425,7 +439,24 @@ Import command:
 make import-superset-assets
 ```
 
-Script Superset REST API ile login olur, CSRF token alir ve YAML-daki obyektleri idempotent formada yaradir ve ya yenileyir. Superset-in native import/export endpoint-leri de bu strategiyaya uygundur:
+Script Superset REST API ile login olur, CSRF token alir ve YAML-daki obyektleri idempotent formada yaradir ve ya yenileyir. `make import-superset-assets` evvel `superset-importer` image-ini rebuild edir ki, script ve YAML deyisiklikleri container daxilinde kohne qalmasin.
+
+Importer chart parametrlerini de normallasdirir:
+
+- `event_count`, `completed_deliveries`, `total_order_value` kimi numeric column-lar chart daxilinde `SUM(...)` adhoc metric kimi yazilir.
+- `delay_rate`, `on_time_rate`, `avg_delay_minutes`, `avg_utilization_ratio` kimi rate/average column-lar `AVG(...)` adhoc metric kimi yazilir.
+- `v_delivery_event_volume.event_hour` dataset-de temporal column ve main datetime column kimi saxlanilir.
+- `Hourly Delivery Event Volume` chart-i `x_axis: event_hour`, `granularity_sqla: event_hour`, `time_grain_sqla: PT1H` ile import olunur.
+
+Bu qayda asagidaki Superset render xetalarinin qarsisini alir:
+
+```text
+Metric 'event_count' does not exist
+Metric 'delay_rate' does not exist
+Datetime column not provided as part table configuration and is required by this type of chart
+```
+
+Superset-in native import/export endpoint-leri de bu strategiyaya uygundur:
 
 - dashboard import: `POST /api/v1/dashboard/import/`
 - dataset import: `POST /api/v1/dataset/import/`

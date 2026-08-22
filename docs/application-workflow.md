@@ -346,6 +346,13 @@ Servis UI-ları:
 - Spark UI: `http://localhost:8082`
 - Airflow UI: `http://localhost:8080`
 - Superset UI: `http://localhost:8088`
+- Superset BI-as-code import:
+
+```powershell
+make import-superset-assets
+```
+
+Bu import `configs/superset/deliveryflow_bi.yaml` faylından database connection, 5 dataset, 5 chart və `DeliveryFlow Operations Dashboard` obyektlərini yaradır və ya yeniləyir. Importer chart metric-lərini Superset adhoc metric formatına çevirir və timeseries chart üçün `event_hour` datetime axis metadata-sını yazır.
 - MinIO Console: `http://localhost:9001`
 
 Database inspection:

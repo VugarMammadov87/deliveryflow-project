@@ -37,7 +37,8 @@ Layihədə iki əsas data axını var:
 7. Synthetic data yarat.
 8. ClickHouse-da stream nəticələrini yoxla.
 9. Spark batch KPI job-u işlət.
-10. Superset-də report view-ları dashboard üçün istifadə et.
+10. Superset BI-as-code obyektlərini import et.
+11. Superset-də report view-ları dashboard üçün istifadə et.
 
 Əsas command axını:
 
@@ -49,6 +50,7 @@ make health
 make submit-flink-job
 make produce
 make spark-daily-kpi
+make import-superset-assets
 make console
 ```
 
@@ -513,6 +515,15 @@ make import-superset-assets
 
 Bu command `configs/superset/deliveryflow_bi.yaml` faylından database, dataset, chart və dashboard obyektlərini Superset REST API vasitəsilə yaradır və ya yeniləyir.
 
+Bu import nəticəsində Superset UI-da əl ilə dashboard qurmaq lazım deyil. Importer aşağıdakıları idarə edir:
+
+- `DeliveryFlow ClickHouse` database connection.
+- 5 ClickHouse view-u əsasında 5 dataset.
+- 5 statistik chart.
+- `DeliveryFlow Operations Dashboard` dashboard-u.
+- Chart metric-ləri üçün adhoc metric formatı. Məsələn `event_count` column-u chart içində `SUM(event_count)` kimi, `delay_rate` isə `AVG(delay_rate)` kimi yazılır.
+- Timeseries chart-lar üçün datetime metadata. `Hourly Delivery Event Volume` chart-ında `event_hour` həm dataset temporal column-u, həm də chart `x_axis` / `granularity_sqla` dəyəridir.
+
 Dashboard üçün hazır view-lar:
 
 - `delivery.v_delivery_status_overview`
@@ -706,6 +717,13 @@ Superset obyektlərini repo-dakı YAML faylından yaradır və ya yeniləyir.
 make import-superset-assets
 ```
 
+Bu Makefile target əvvəl `superset-importer` image-ini yeniləyir, sonra Docker Compose service-i işlədir:
+
+```text
+docker compose build superset-importer
+docker compose run --rm superset-importer
+```
+
 YAML source of truth:
 
 ```text
@@ -713,6 +731,22 @@ configs/superset/deliveryflow_bi.yaml
 ```
 
 Import nəticəsində `DeliveryFlow ClickHouse` database connection, 5 dataset, 5 chart və `DeliveryFlow Operations Dashboard` dashboard-u Superset-də hazır olur.
+
+Importer Superset chart parametrlərini də normallaşdırır:
+
+- YAML-də oxunaqlı saxlanılan metric adları Superset adhoc metric formatına çevrilir.
+- Count/sum tipli column-lar üçün `SUM(...)` istifadə olunur.
+- `avg_` prefix-li və `_rate` suffix-li column-lar üçün `AVG(...)` istifadə olunur.
+- `event_hour` və `business_date` kimi zaman column-ları dataset metadata-da temporal column kimi qeyd olunur.
+- `Hourly Delivery Event Volume` üçün `x_axis: event_hour`, `granularity_sqla: event_hour`, `time_grain_sqla: PT1H` yazılır.
+
+Bu davranış aşağıdakı Superset xətalarının qarşısını alır:
+
+```text
+Metric 'event_count' does not exist
+Metric 'delay_rate' does not exist
+Datetime column not provided as part table configuration and is required by this type of chart
+```
 
 ### `make airflow-dag-list`
 
@@ -764,6 +798,14 @@ Container-ləri və orphan container-ləri silir, amma named volume-ları saxlay
 make clean
 ```
 
+### `make clean-keep-images`
+
+Container-ləri və orphan container-ləri silir, amma named volume-ları və Docker image-ləri saxlayır.
+
+```powershell
+make clean-keep-images
+```
+
 ### `make purge`
 
 Destructive cleanup edir:
@@ -793,6 +835,7 @@ make submit-flink-job
 make produce
 make spark-iceberg-test
 make spark-daily-kpi
+make import-superset-assets
 make console
 ```
 
@@ -836,6 +879,18 @@ docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM de
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
+```
+
+Əgər dashboard var, amma chart-lar metric və ya datetime xətası verirsə:
+
+```powershell
+make import-superset-assets
+```
+
+Sonra dashboard səhifəsini hard refresh et:
+
+```text
+Ctrl + F5
 ```
 
 Əgər yeni schema görünmürsə, köhnə volume qalır. Lokal data-nı silmək qəbul edilirsə:

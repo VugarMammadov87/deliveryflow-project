@@ -4,9 +4,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.api.common.functions.MapFunction;
 
+/**
+ * Converts raw Kafka JSON messages into the internal DeliveryEvent DTO.
+ *
+ * <p>This parser exists so the Flink topology can work with typed fields while
+ * preserving the original event body for audit/debug storage in ClickHouse.</p>
+ */
 public class DeliveryEventParser implements MapFunction<String, DeliveryEvent> {
+    /** ObjectMapper is reusable and thread-safe after configuration. */
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * Parse one versioned event and normalize missing optional values.
+     *
+     * <p>Required identity fields are left visible to the downstream validation
+     * filter. Optional payload fields default to empty strings or zeroes so the
+     * local demo sink can still write partial events without null handling in
+     * every ClickHouse JSON builder.</p>
+     */
     @Override
     public DeliveryEvent map(String value) throws Exception {
         JsonNode root = MAPPER.readTree(value);

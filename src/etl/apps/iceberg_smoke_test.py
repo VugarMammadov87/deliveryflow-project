@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+"""Smoke test for Spark, Nessie, Iceberg, and S3-compatible storage wiring.
+
+The job exists to validate infrastructure integration rather than business
+logic. If this tiny Iceberg write/read succeeds, Spark can reach the Nessie
+catalog and the configured warehouse storage used by the real batch job.
+"""
+
 from pyspark.sql import SparkSession
 
 
 def main() -> None:
+    """Create a minimal Iceberg table, write one row, and read it back."""
     spark = SparkSession.builder.appName("deliveryflow-iceberg-smoke-test").getOrCreate()
     spark.sql("CREATE NAMESPACE IF NOT EXISTS nessie.bronze")
     spark.sql(

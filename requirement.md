@@ -894,6 +894,27 @@ Potential KPIs:
 
 Operational dashboards and management dashboards should be considered separate concerns where appropriate.
 
+Superset BI objects should be importable from version-controlled repository assets where practical.
+
+Required local BI-as-code command:
+
+```
+make import-superset-assets
+
+```
+
+This command should import or update the Superset database connection, datasets, charts, and dashboard definitions from the repository assets instead of requiring manual dashboard rebuilding in the Superset UI.
+
+Superset chart definitions must be renderable after import:
+
+- YAML metric names such as `event_count`, `delay_rate`, and `avg_delay_minutes` must not be treated as missing saved metrics.
+- The importer should convert readable metric names into chart-level adhoc metrics.
+- Count and amount columns should use `SUM(...)` unless a different aggregation is explicitly required.
+- Rate and average columns should use `AVG(...)` unless a different aggregation is explicitly required.
+- Timeseries charts must define a datetime column explicitly.
+- `event_hour` must be configured as the datetime axis for hourly delivery event volume.
+- `business_date` and `event_hour` should be represented as temporal dataset metadata where appropriate.
+
 ---
 
 ## 25. Target Logical Architecture
@@ -1244,7 +1265,11 @@ make pull
 
 make clean
 
+make import-superset-assets
+
 ```
+
+`make import-superset-assets` should rebuild the importer image before running the importer container so BI asset and script changes are not hidden by a stale Docker image.
 
 Service-specific logging may include:
 

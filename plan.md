@@ -1463,12 +1463,17 @@ The exact publication model must be approved.
 
 Provide operational and management analytics.
 
-Superset is not a Docker Compose service in this local platform.
+Superset is a Docker Compose service in this local platform, and the repository includes a dedicated `superset-importer` service for BI-as-code imports.
 
 The repository should provide:
 
 - Approved analytical views/tables.
 - Connection documentation.
+- Version-controlled Superset BI assets.
+- `make import-superset-assets` for importing database, dataset, chart, and dashboard definitions.
+- Chart-level adhoc metric generation from readable YAML metric names.
+- Dataset temporal metadata for BI time columns such as `business_date` and `event_hour`.
+- Timeseries chart parameters such as `x_axis`, `granularity_sqla`, and `time_grain_sqla`.
 - Refresh approach.
 - Semantic-model guidance.
 - KPI definitions.
@@ -1506,6 +1511,8 @@ Potential metrics:
 - Superset can access approved serving data.
 - Operational and management concerns are separated.
 - KPI definitions match the approved business logic.
+- Imported charts do not fail with missing saved metric errors.
+- Timeseries charts have an explicit datetime column configuration.
 
 ---
 
@@ -1693,6 +1700,8 @@ make logs-storage
 make logs-nessie
 
 make console
+
+make import-superset-assets
 ```
 
 ### Rules
@@ -1704,6 +1713,8 @@ make console
 ### Exit Criteria
 
 A developer can operate the platform without remembering long Docker commands.
+Superset BI assets can be imported from the repository without manual UI rebuilding.
+The importer rebuilds the `superset-importer` image before running so code and YAML updates are used consistently.
 
 ---
 

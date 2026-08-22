@@ -221,6 +221,18 @@ Səbəb:
 
 Superset raw Kafka, raw MinIO və ya Iceberg metadata ilə işləməməlidir. Onun approved data source-u ClickHouse serving qatıdır.
 
+BI obyektləri manual UI konfiqurasiyası kimi saxlanmır. `configs/superset/deliveryflow_bi.yaml` Superset database, dataset, chart və dashboard definition-ları üçün repository source of truth-dur.
+
+`make import-superset-assets` import workflow-u aşağıdakı qərarları tətbiq edir:
+
+- `superset-importer` image əvvəl rebuild olunur ki, YAML və Python importer dəyişiklikləri köhnə image-də qalmasın.
+- YAML-dəki metric adları Superset saved metric kimi yox, chart-level adhoc metric kimi yazılır. Bu `Metric 'event_count' does not exist` və `Metric 'delay_rate' does not exist` xətalarının qarşısını alır.
+- Count/sum column-ları üçün `SUM(...)`, rate və average column-lar üçün `AVG(...)` seçilir.
+- Timeseries chart-lar üçün temporal metadata açıq saxlanılır. `v_delivery_event_volume.event_hour` dataset-də `main_dttm_col` və temporal column-dur, chart-da isə `x_axis` və `granularity_sqla` dəyəridir.
+- `business_date` warehouse KPI dataset-də temporal column kimi qeyd olunur ki, gələcək time-based chart-lar eyni qayda ilə işləsin.
+
+Bu qərarın məqsədi Superset dashboard-un təmiz environment-də də reproducible import olunmasıdır: dataset-lər, chart-lar və dashboard yaransın, chart render zamanı metric və datetime metadata xətası verməsin.
+
 ## ADR-009: One Generator, Two Data Types
 
 Generator tək app olaraq saxlanılıb:

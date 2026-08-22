@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""End-to-end smoke test for the streaming path.
+
+This script exists to prove that the generated logistics events can travel from
+the Python producer through Kafka and Flink into ClickHouse serving tables. It
+keeps the test small so it can run locally after `make up` without becoming a
+full integration test suite.
+"""
+
 import os
 import subprocess
 import sys
@@ -11,6 +19,7 @@ from producers.synthetic_logistics_producer import main as produce_events
 
 
 def query_count(table: str) -> int:
+    """Return the current ClickHouse row count for a serving table."""
     client = clickhouse_connect.get_client(
         host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
         port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
@@ -22,6 +31,7 @@ def query_count(table: str) -> int:
 
 
 def wait_for_clickhouse_rows(table: str, minimum: int, timeout_seconds: int = 90) -> None:
+    """Wait until Flink has materialized enough rows in ClickHouse."""
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         count = query_count(table)
@@ -33,6 +43,7 @@ def wait_for_clickhouse_rows(table: str, minimum: int, timeout_seconds: int = 90
 
 
 def main() -> int:
+    """Produce a small event batch and validate ClickHouse side effects."""
     os.environ.setdefault("PRODUCER_EVENT_COUNT", "10")
     os.environ.setdefault("PRODUCER_INTERVAL_SECONDS", "0.05")
     produce_events()

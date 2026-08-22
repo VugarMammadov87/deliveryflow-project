@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+"""Non-destructive runtime health checks for the local DeliveryFlow platform.
+
+This script exists so `make health` can validate the full Docker Compose stack
+without mutating business data. It checks service reachability and simple API
+responses, then returns a non-zero exit code when any required service is not
+ready.
+"""
+
 import os
 import socket
 import sys
@@ -14,12 +22,19 @@ from kafka import KafkaConsumer
 
 @dataclass(frozen=True)
 class Check:
+    """Result object shared by all health checks.
+
+    A common shape makes the final report easy to scan and keeps individual
+    checks focused on one service-specific question.
+    """
+
     name: str
     ok: bool
     detail: str
 
 
 def tcp_check(name: str, host: str, port: int, timeout: float = 3.0) -> Check:
+    """Check raw TCP reachability for services without cheap HTTP endpoints."""
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return Check(name, True, f"{host}:{port} reachable")
@@ -28,6 +43,7 @@ def tcp_check(name: str, host: str, port: int, timeout: float = 3.0) -> Check:
 
 
 def http_check(name: str, url: str, timeout: float = 5.0) -> Check:
+    """Check HTTP readiness endpoints used by UI and API services."""
     try:
         response = requests.get(url, timeout=timeout)
         return Check(name, response.ok, f"HTTP {response.status_code}")
@@ -36,6 +52,7 @@ def http_check(name: str, url: str, timeout: float = 5.0) -> Check:
 
 
 def retry_check(factory: Callable[[], Check], max_wait_seconds: float, interval_seconds: float) -> Check:
+    """Retry a check while containers are still moving from started to ready."""
     deadline = time.time() + max_wait_seconds
     last_check = factory()
     while not last_check.ok and time.time() < deadline:
@@ -45,6 +62,7 @@ def retry_check(factory: Callable[[], Check], max_wait_seconds: float, interval_
 
 
 def kafka_check() -> Check:
+    """Verify Kafka is reachable and the expected delivery topic exists."""
     try:
         consumer = KafkaConsumer(
             bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
@@ -59,6 +77,7 @@ def kafka_check() -> Check:
 
 
 def clickhouse_check() -> Check:
+    """Verify ClickHouse accepts authenticated analytical queries."""
     try:
         client = clickhouse_connect.get_client(
             host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
@@ -74,6 +93,7 @@ def clickhouse_check() -> Check:
 
 
 def main() -> int:
+    """Run all platform checks and return a shell-friendly health status."""
     startup_wait_seconds = float(os.getenv("HEALTH_STARTUP_WAIT_SECONDS", "180"))
     retry_interval_seconds = float(os.getenv("HEALTH_RETRY_INTERVAL_SECONDS", "5"))
     checks = [

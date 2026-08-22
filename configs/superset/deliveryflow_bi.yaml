@@ -18,9 +18,15 @@ datasets:
   - name: Warehouse Daily KPI
     schema: delivery
     table_name: v_warehouse_daily_kpi
+    main_dttm_col: business_date
+    temporal_columns:
+      - business_date
   - name: Delivery Event Volume
     schema: delivery
     table_name: v_delivery_event_volume
+    main_dttm_col: event_hour
+    temporal_columns:
+      - event_hour
 
 charts:
   - name: Delivery Status Overview
@@ -76,6 +82,8 @@ charts:
     dataset: Delivery Event Volume
     viz_type: echarts_timeseries_line
     params:
+      x_axis: event_hour
+      granularity_sqla: event_hour
       time_grain_sqla: PT1H
       temporal_columns_lookup:
         event_hour: true

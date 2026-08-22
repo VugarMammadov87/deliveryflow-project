@@ -18,7 +18,7 @@ NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 
-.PHONY: help config build pull up down clean purge restart ps status health console \
+.PHONY: help config build pull up down clean clean-keep-images purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
 	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie logs-producer-continuous \
 	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
@@ -31,6 +31,7 @@ help:
 	@echo "  make up                  Start the full local platform"
 	@echo "  make down                Stop containers and preserve named volumes"
 	@echo "  make clean               Stop and remove project containers, preserving named volumes"
+	@echo "  make clean-keep-images   Stop and remove containers/orphans, preserving volumes and images"
 	@echo "  make purge               Destructively remove project containers, volumes, images, and orphans"
 	@echo "  make restart             Restart containers and preserve named volumes"
 	@echo "  make ps                  Show container status"
@@ -68,6 +69,9 @@ down:
 	$(COMPOSE) down
 
 clean:
+	$(COMPOSE) down --remove-orphans
+
+clean-keep-images:
 	$(COMPOSE) down --remove-orphans
 
 purge:
@@ -180,6 +184,7 @@ submit-flink-job:
 	$(COMPOSE) run --rm flink-job-submit
 
 import-superset-assets:
+	$(COMPOSE) build superset-importer
 	$(COMPOSE) run --rm superset-importer
 
 produce:

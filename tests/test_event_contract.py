@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+"""Contract tests for the synthetic delivery event payload.
+
+This test module exists to protect the boundary between the Python producer and
+the downstream Java/Flink, ClickHouse, Spark, and Superset pipeline. A small
+schema drift in the producer can break multiple services, so the test checks the
+fields that the rest of the platform depends on most heavily.
+"""
+
 from producers.synthetic_logistics_producer import build_event
 from random import Random
 
 
 def test_synthetic_event_uses_versioned_json_contract() -> None:
+    """Verify that generated events keep the versioned logistics event shape.
+
+    The test intentionally uses a seeded random generator so failures are about
+    contract changes, not nondeterministic sample data. It focuses on required
+    identifiers, timestamp format, nested payload existence, and enum-like
+    domain values consumed by Flink and ClickHouse.
+    """
     event = build_event(0, Random(42))
     assert event["schema_version"] == 1
     assert event["event_id"]
