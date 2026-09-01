@@ -128,10 +128,15 @@ flowchart TB
         subgraph streaming["Streaming Layer"]
             kafka["Kafka Broker"]
             kafkaUi["Kafka UI"]
-            producer["Producer Container"]
+            producer["Producer Application<br/>minimal runtime image"]
             flinkJm["Flink JobManager"]
             flinkTm["Flink TaskManager"]
             flinkSubmit["Flink Job Submitter"]
+        end
+
+        subgraph developerTools["One-Shot Developer Tooling"]
+            platformTools["Platform Tools<br/>health / E2E"]
+            supersetImporter["Superset Importer"]
         end
 
         subgraph serving["Serving Layer"]
@@ -161,6 +166,9 @@ flowchart TB
 
     producer --> kafka
     producer --> postgresSource
+    platformTools -. health and E2E .-> kafka
+    platformTools -. health and E2E .-> clickhouse
+    supersetImporter -. BI import .-> superset
     kafka --> kafkaUi
     kafka --> flinkJm
     flinkJm --> flinkTm
@@ -202,8 +210,10 @@ flowchart TB
 |   |-- flink/
 |   |-- kafka/
 |   |-- postgres/
+|   |-- producer/
 |   |-- spark/
-|   `-- superset/
+|   |-- superset/
+|   `-- tooling/
 |-- src/
 |   |-- contracts/
 |   |   `-- delivery_event_v1.schema.json
@@ -212,9 +222,14 @@ flowchart TB
 |   |       |-- daily_kpi_job.py
 |   |       `-- iceberg_smoke_test.py
 |   `-- producers/
+|       |-- config.py
+|       |-- events.py
+|       |-- source.py
+|       |-- streaming.py
 |       `-- synthetic_logistics_producer.py
 |-- tests/
-|   `-- test_event_contract.py
+|   |-- test_event_contract.py
+|   `-- test_producer_rate.py
 |-- docker-compose.yml
 |-- Makefile
 |-- README.md
@@ -336,7 +351,7 @@ Health check:
 make health
 ```
 
-Bu command producer container içindən `scripts/health_check.py` scriptini işlədir və əsas servisləri yoxlayır:
+Bu command one-shot `platform-tools` container-i içindən `scripts/health_check.py` scriptini işlədir və əsas servisləri yoxlayır. Producer application image-i health, ClickHouse və Superset dependency-ləri daşımır:
 
 - Kafka
 - PostgreSQL
@@ -630,7 +645,7 @@ make pull
 
 ### `make build`
 
-Local image-ləri build edir: Spark, Airflow, Flink, Producer və Superset.
+Local image-ləri build edir: Spark, Airflow, Flink, minimal Producer, one-shot Platform Tooling və Superset.
 
 ```powershell
 make build
@@ -644,7 +659,7 @@ Full local platformanı başladır.
 make up
 ```
 
-Bu command core servislərlə birlikdə `producer-continuous` servisini də başladır. Həmin servis Kafka-ya hər 10 dəqiqədən bir yeni stream event göndərir.
+Bu command core servislərlə birlikdə `producer-continuous` servisini də başladır. Həmin servis Kafka-ya default olaraq hər 60 saniyədə 10 stream event göndərir.
 
 ### `make ps` və `make status`
 
@@ -698,7 +713,7 @@ make produce-stream
 
 ### `make produce-continuous`
 
-Background `producer-continuous` servisini başladır. Bu servis `PRODUCER_MODE=stream` və `PRODUCER_CONTINUOUS=true` ilə işləyir, default olaraq hər 10 dəqiqədən bir Kafka-ya delivery event göndərir.
+Background `producer-continuous` servisini basladir. Bu servis `PRODUCER_MODE=stream` ve `PRODUCER_CONTINUOUS=true` ile isleyir, default olaraq Kafka-ya her 60 saniyede 10 delivery event batch-i gonderir.
 
 ```powershell
 make produce-continuous
@@ -707,7 +722,8 @@ make produce-continuous
 Interval `.env` içində dəyişdirilir:
 
 ```text
-PRODUCER_CONTINUOUS_INTERVAL_SECONDS=600
+PRODUCER_CONTINUOUS_INTERVAL_SECONDS=60
+PRODUCER_EVENTS_PER_INTERVAL=10
 ```
 
 Log-lara baxmaq:
@@ -796,6 +812,8 @@ make airflow-dag-list
 ### `make test-e2e`
 
 Stream path üçün end-to-end smoke test edir.
+
+Test `platform-tools` image-də işləyir; producer application image-i yalnız event generation və PostgreSQL batch seed dependency-lərini saxlayır.
 
 ```powershell
 make test-e2e

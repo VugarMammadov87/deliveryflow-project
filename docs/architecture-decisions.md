@@ -294,6 +294,30 @@ Səbəb:
 - Normal cleanup data volume-ları silməməlidir.
 - Schema dəyişiklikləri zamanı tam sıfırlama üçün ayrıca açıq target lazımdır.
 
+## ADR-011: Producer və Platform Tooling Image Ayrımı
+
+Kafka broker infrastructure, synthetic producer application və operator tooling ayrı ownership sərhədlərində saxlanılır:
+
+```text
+services/producer/Dockerfile
+    -> producer
+    -> producer-continuous
+
+services/tooling/Dockerfile
+    -> platform-tools health/E2E runner
+    -> superset-importer
+```
+
+Producer image yalnız `src/producers`, `kafka-python` və PostgreSQL batch seed üçün `psycopg2-binary` daşıyır. ClickHouse client, Requests, PyYAML, health/E2E script-ləri və Superset asset-ləri one-shot tooling image-də qalır.
+
+Bu ayrım mövcud Make target və Compose service adlarını dəyişmir. Məqsəd producer runtime-ını BI import və platform diagnostics dependency-lərindən ayırmaq, image rebuild coupling-i azaltmaq və gələcək producer refactor-u üçün aydın service sərhədi yaratmaqdır.
+
+## ADR-012: Modular Producer və Sabit Continuous Rate
+
+Producer entrypoint-i operator interfeysi kimi qorunur, implementation isə config, event generation, PostgreSQL source və Kafka streaming modullarına ayrılır. Bu sərhədlər event contract-larını transport və deployment config-dən ayırır, hədəflənmiş unit testləri mümkün edir və gələcək metadata-driven config mərhələsi üçün ayrıca config adapter nöqtəsi yaradır.
+
+Continuous producer-in default intervalı 60 saniyədir və hər intervalda 10 event batch-i publish edilir. Bu batch-of-10 modeli `T=00:00 -> 10 events`, `T=00:01 -> 10 events` semantikasını birbaşa ifadə edir və rate testlərini sadə saxlayır. Publisher relative `sleep(60)` zənciri əvəzinə monotonic fixed deadlines istifadə edir; buna görə serializasiya və Kafka flush müddəti cumulative rate drift yaratmır. Mövcud `PRODUCER_CONTINUOUS_INTERVAL_SECONDS` environment override-ı backward compatibility üçün saxlanılır, `PRODUCER_EVENTS_PER_INTERVAL` isə interval başına record sayını ayrıca idarə edir.
+
 ## Runtime Service Map
 
 ```mermaid
@@ -302,6 +326,8 @@ flowchart TB
         kafka["Kafka"]
         kafkaUi["Kafka UI"]
         producer["Producer"]
+        platformTools["Platform Tools<br/>one-shot health / E2E"]
+        supersetImporter["Superset Importer<br/>one-shot"]
         flinkJm["Flink JobManager"]
         flinkTm["Flink TaskManager"]
         sparkMaster["Spark Master"]
@@ -319,6 +345,9 @@ flowchart TB
     kafka --> kafkaUi
     producer --> kafka
     producer --> pgSource
+    platformTools -. validates .-> kafka
+    platformTools -. validates .-> clickhouse
+    supersetImporter -. imports BI assets .-> superset
     kafka --> flinkJm
     flinkJm --> flinkTm
     flinkJm --> clickhouse

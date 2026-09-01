@@ -514,7 +514,7 @@ services:
   producer:
     build:
       context: .
-      dockerfile: services/kafka/producer.Dockerfile
+      dockerfile: services/producer/Dockerfile
     image: ${PRODUCER_IMAGE}
     container_name: deliveryflow-producer
     depends_on:
@@ -533,6 +533,7 @@ services:
       PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
       PRODUCER_CONTINUOUS: ${PRODUCER_CONTINUOUS}
       PRODUCER_CONTINUOUS_INTERVAL_SECONDS: ${PRODUCER_CONTINUOUS_INTERVAL_SECONDS}
+      PRODUCER_EVENTS_PER_INTERVAL: ${PRODUCER_EVENTS_PER_INTERVAL}
       SOURCE_DB_HOST: postgres-source
       SOURCE_DB_PORT: 5432
       SOURCE_DB_NAME: ${SOURCE_DB_NAME}
@@ -544,7 +545,7 @@ services:
   producer-continuous:
     build:
       context: .
-      dockerfile: services/kafka/producer.Dockerfile
+      dockerfile: services/producer/Dockerfile
     image: ${PRODUCER_IMAGE}
     container_name: deliveryflow-producer-continuous
     depends_on:
@@ -563,6 +564,7 @@ services:
       PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
       PRODUCER_CONTINUOUS: "true"
       PRODUCER_CONTINUOUS_INTERVAL_SECONDS: ${PRODUCER_CONTINUOUS_INTERVAL_SECONDS}
+      PRODUCER_EVENTS_PER_INTERVAL: ${PRODUCER_EVENTS_PER_INTERVAL}
       SOURCE_DB_HOST: postgres-source
       SOURCE_DB_PORT: 5432
       SOURCE_DB_NAME: ${SOURCE_DB_NAME}
@@ -573,11 +575,42 @@ services:
     networks:
       - delivery-platform-net
 
+  platform-tools:
+    build:
+      context: .
+      dockerfile: services/tooling/Dockerfile
+    image: ${TOOLING_IMAGE:-deliveryflow-tooling:0.1.0}
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: ${KAFKA_TOPIC_DELIVERY_EVENTS}
+      KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS: ${KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS:-vehicle-telemetry-events}
+      PRODUCER_APP: ${PRODUCER_APP:-delivery}
+      PRODUCER_EVENT_COUNT: ${PRODUCER_EVENT_COUNT}
+      PRODUCER_INTERVAL_SECONDS: ${PRODUCER_INTERVAL_SECONDS}
+      PRODUCER_MODE: ${PRODUCER_MODE}
+      PRODUCER_BATCH_ROWS: ${PRODUCER_BATCH_ROWS}
+      PRODUCER_CONTINUOUS: ${PRODUCER_CONTINUOUS}
+      PRODUCER_CONTINUOUS_INTERVAL_SECONDS: ${PRODUCER_CONTINUOUS_INTERVAL_SECONDS}
+      PRODUCER_EVENTS_PER_INTERVAL: ${PRODUCER_EVENTS_PER_INTERVAL}
+      SOURCE_DB_HOST: postgres-source
+      SOURCE_DB_PORT: 5432
+      SOURCE_DB_NAME: ${SOURCE_DB_NAME}
+      SOURCE_DB_USER: ${SOURCE_DB_USER}
+      SOURCE_DB_PASSWORD: ${SOURCE_DB_PASSWORD}
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_HTTP_PORT: 8123
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    command: python /app/scripts/health_check.py
+    networks:
+      - delivery-platform-net
+
   superset-importer:
     build:
       context: .
-      dockerfile: services/kafka/producer.Dockerfile
-    image: ${PRODUCER_IMAGE}
+      dockerfile: services/tooling/Dockerfile
+    image: ${TOOLING_IMAGE:-deliveryflow-tooling:0.1.0}
     container_name: deliveryflow-superset-importer
     depends_on:
       superset:

@@ -11,12 +11,14 @@ import org.apache.flink.types.Row;
 import org.apache.flink.types.RowKind;
 
 import java.io.OutputStream;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 /**
  * Independent fleet telemetry streaming application implemented with Flink SQL.
@@ -28,6 +30,9 @@ import java.time.ZoneOffset;
  * transformations that can become the reference pattern for future domains.</p>
  */
 public class VehicleTelemetrySqlJob {
+    private static final DateTimeFormatter CLICKHOUSE_TIMESTAMP_FORMATTER =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+
     /**
      * Bootstraps the fleet telemetry application from environment variables.
      *
@@ -299,7 +304,12 @@ public class VehicleTelemetrySqlJob {
             }
             int code = connection.getResponseCode();
             if (code < 200 || code >= 300) {
-                throw new IllegalStateException("ClickHouse fleet insert failed with HTTP " + code + " for table " + table);
+                InputStream errorStream = connection.getErrorStream();
+                String body = errorStream == null ? "" : new String(errorStream.readAllBytes(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(
+                    "ClickHouse fleet insert failed with HTTP " + code + " for table " + table
+                        + ": " + body + " SQL=" + sql
+                );
             }
         }
 
@@ -397,12 +407,17 @@ public class VehicleTelemetrySqlJob {
         private static String timestamp(Row row, int index) {
             Object value = row.getField(index);
             if (value instanceof Instant) {
-                return value.toString().replace("T", " ").replace("Z", "");
+                return CLICKHOUSE_TIMESTAMP_FORMATTER.format(LocalDateTime.ofInstant((Instant) value, ZoneOffset.UTC));
             }
             if (value instanceof LocalDateTime) {
-                return ((LocalDateTime) value).toString().replace("T", " ");
+                return CLICKHOUSE_TIMESTAMP_FORMATTER.format((LocalDateTime) value);
             }
-            return value == null ? "1970-01-01 00:00:00" : value.toString().replace("T", " ").replace("Z", "");
+            if (value == null) {
+                return "1970-01-01 00:00:00.000";
+            }
+            String raw = value.toString().replace("T", " ").replace("Z", "");
+            LocalDateTime parsed = LocalDateTime.parse(raw.replace(" ", "T"));
+            return CLICKHOUSE_TIMESTAMP_FORMATTER.format(parsed);
         }
 
         /**

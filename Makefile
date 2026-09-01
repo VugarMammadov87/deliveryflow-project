@@ -27,7 +27,7 @@ APP ?= delivery
 help:
 	@echo "DeliveryFlow local platform"
 	@echo "  make config              Validate Docker Compose configuration"
-	@echo "  make build               Build local Airflow, Flink, and producer images"
+	@echo "  make build               Build local Airflow, Flink, producer, tooling, Spark, and Superset images"
 	@echo "  make pull                Pull pinned upstream images"
 	@echo "  make up                  Start the full local platform"
 	@echo "  make down                Stop containers and preserve named volumes"
@@ -44,7 +44,7 @@ help:
 	@echo "  make produce             Generate synthetic batch source rows and stream events"
 	@echo "  make produce APP=fleet   Generate fleet vehicle telemetry events"
 	@echo "  make produce-stream      Generate Kafka stream events only"
-	@echo "  make produce-continuous  Start a background stream producer that emits one event every 10 minutes"
+	@echo "  make produce-continuous  Start a background stream producer that emits 10 events every 60 seconds"
 	@echo "  make stop-continuous-producer Stop the background continuous stream producer"
 	@echo "  make seed-batch-source   Generate PostgreSQL batch source rows only"
 	@echo "  make submit-flink-job    Submit the Kafka -> Flink -> ClickHouse job"
@@ -61,7 +61,7 @@ pull:
 	$(COMPOSE) pull postgres-airflow postgres-source kafka kafka-ui minio minio-init nessie clickhouse superset
 
 build:
-	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer superset superset-importer
+	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer platform-tools superset
 
 up:
 	$(COMPOSE) up -d --build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse superset airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
@@ -87,7 +87,7 @@ ps status:
 	$(COMPOSE) ps
 
 health:
-	$(COMPOSE) run --rm producer python /app/scripts/health_check.py
+	$(COMPOSE) run --rm platform-tools python /app/scripts/health_check.py
 
 console:
 	@echo Kafka external bootstrap: localhost:$(KAFKA_HOST_PORT)
@@ -225,9 +225,9 @@ airflow-dag-list:
 
 test-e2e:
 ifeq ($(APP),fleet)
-	$(COMPOSE) run --rm -e E2E_APP=fleet producer python /app/scripts/e2e_smoke_test.py
+	$(COMPOSE) run --rm -e E2E_APP=fleet platform-tools python /app/scripts/e2e_smoke_test.py
 else
-	$(COMPOSE) run --rm producer python /app/scripts/e2e_smoke_test.py
+	$(COMPOSE) run --rm platform-tools python /app/scripts/e2e_smoke_test.py
 endif
 
 clean-warning:

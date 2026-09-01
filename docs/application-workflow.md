@@ -77,6 +77,15 @@ Generator faylı:
 src/producers/synthetic_logistics_producer.py
 ```
 
+Entrypoint yalnız workflow orchestration və backward-compatible import-ları saxlayır. Producer implementation məsuliyyətlərə görə modullara ayrılır:
+
+```text
+src/producers/config.py       -> environment config və validation
+src/producers/events.py       -> Delivery və Fleet event builder-ləri
+src/producers/source.py       -> PostgreSQL batch/source seed
+src/producers/streaming.py    -> Kafka transport və continuous pacing
+```
+
 Bu app iki data tipi yaradır:
 
 - PostgreSQL üçün batch/source data.
@@ -93,6 +102,22 @@ Default local mode:
 ```text
 PRODUCER_MODE=both
 ```
+
+### Runtime Image Ownership
+
+Generator source tək application entrypoint-i kimi qalır, amma container ownership iki image-ə ayrılır:
+
+```text
+services/producer/Dockerfile
+    -> producer və producer-continuous
+    -> yalnız event generation və PostgreSQL seed runtime-ı
+
+services/tooling/Dockerfile
+    -> platform-tools və superset-importer
+    -> health, E2E və BI-as-Code import tooling-i
+```
+
+`make produce` və `make produce APP=fleet` minimal producer image-dən istifadə edir. `make health`, `make test-e2e` və `make import-superset-assets` isə one-shot tooling image-dən işləyir. Command adları və generator behavior-u dəyişmir.
 
 Generatorun yaratdığı event-lər logistika prosesinin müxtəlif mərhələlərini simulyasiya edir:
 
@@ -119,13 +144,14 @@ Event payload-u artıq yalnız status və koordinatlardan ibarət deyil. Hesabat
 
 Stream generator bir defe isleyib dayanmaqla yanashi davamli servis kimi de isleyir. `producer-continuous` servisi `PRODUCER_MODE=stream` ve `PRODUCER_CONTINUOUS=true` ile baslayir.
 
-Default interval:
+Default rate:
 
 ```text
-PRODUCER_CONTINUOUS_INTERVAL_SECONDS=600
+PRODUCER_CONTINUOUS_INTERVAL_SECONDS=60
+PRODUCER_EVENTS_PER_INTERVAL=10
 ```
 
-Bu o demekdir ki, platforma qalxandan sonra her 10 deqiqeden bir Kafka `delivery-events` topic-ine yeni logistics event publish edilir. Bu rejim Superset-de event volume, latest delivery state ve vehicle utilization chart-larinin zamanla yenilenmesini yoxlamaq ucundur.
+Bu, Kafka `delivery-events` topic-ine her 60 saniyede 10 event batch-i publish edir. Batch-of-10 yanaşması rate testlərini sadə saxlayır, monotonic deadline pacing isə event serialization və Kafka flush vaxtının növbəti interval üzərinə yığılmasının qarşısını alır. Bu rejim Superset-də event volume, latest delivery state və vehicle utilization chart-larının zamanla yenilənməsini yoxlamaq üçündür.
 
 Davamli producer-i elle baslatmaq:
 

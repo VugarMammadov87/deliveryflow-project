@@ -8,8 +8,10 @@ schema drift in the producer can break multiple services, so the test checks the
 fields that the rest of the platform depends on most heavily.
 """
 
-from producers.synthetic_logistics_producer import build_event, build_vehicle_telemetry_event
+from datetime import datetime
 from random import Random
+
+from producers.synthetic_logistics_producer import build_event, build_vehicle_telemetry_event
 
 
 def test_synthetic_event_uses_versioned_json_contract() -> None:
@@ -46,3 +48,18 @@ def test_vehicle_telemetry_event_uses_fleet_contract() -> None:
     assert 0 <= event["fuel_level_pct"] <= 100
     assert event["engine_status"] in {"RUNNING", "IDLE", "OFF"}
     assert event["vehicle_status"] in {"IN_TRANSIT", "IDLE", "MAINTENANCE", "OFFLINE"}
+
+
+def test_vehicle_telemetry_reference_scenario_uses_one_vehicle_timeline() -> None:
+    """Protect the documented fleet E2E scenario for windowed SQL metrics."""
+    events = [build_vehicle_telemetry_event(index, Random(42 + index)) for index in range(4)]
+    assert [event["vehicle_id"] for event in events] == ["VEH-101"] * 4
+    assert [event["speed_kmh"] for event in events] == [62.0, 108.0, 75.0, 70.0]
+    assert [event["fuel_level_pct"] for event in events] == [68.0, 66.0, 14.0, 13.0]
+    assert [event["engine_temperature_c"] for event in events] == [88.0, 91.0, 94.0, 108.0]
+
+    event_times = [
+        datetime.fromisoformat(event["event_timestamp"].replace("Z", "+00:00"))
+        for event in events
+    ]
+    assert [(event_times[index] - event_times[0]).total_seconds() for index in range(4)] == [0, 180, 360, 540]
