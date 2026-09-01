@@ -63,8 +63,8 @@ pull:
 build:
 	$(COMPOSE) build spark-master airflow-init flink-jobmanager producer platform-tools superset
 
-up:
-	$(COMPOSE) up -d --build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse superset airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
+up: build
+	$(COMPOSE) up -d --no-build postgres-airflow postgres-source kafka kafka-init kafka-ui minio minio-init nessie spark-master spark-worker clickhouse superset airflow-init airflow-webserver airflow-scheduler flink-jobmanager flink-taskmanager
 	$(MAKE) submit-flink-job
 	$(COMPOSE) up -d producer-continuous
 
