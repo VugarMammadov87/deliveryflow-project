@@ -18,6 +18,7 @@ NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 APP ?= delivery
+COMPOSE_PROJECT_NAME ?= deliveryflow
 
 .PHONY: help config build pull up down clean clean-keep-images purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
@@ -78,7 +79,8 @@ clean-keep-images:
 	$(COMPOSE) down --remove-orphans
 
 purge:
-	$(COMPOSE) down --volumes --remove-orphans --rmi local
+	$(COMPOSE) down --volumes --remove-orphans --rmi all
+	docker volume prune --all --force --filter label=com.docker.compose.project=$(COMPOSE_PROJECT_NAME)
 
 restart:
 	$(COMPOSE) restart
