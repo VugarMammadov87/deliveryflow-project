@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Data Model &amp; Catalog | DeliveryFlow Docs</title>
+  <meta name="description" content="Central Data Catalog, Lineage Matrix, and Schema Dictionary for the DeliveryFlow logistics data platform.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Data Platform</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html" class="active">Data Model &amp; Catalog</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <!-- Hero Section -->
+        <section class="hero-banner" id="overview">
+          <div class="hero-title">Central Data Catalog &amp; Lineage Matrix</div>
+          <p class="hero-lead">
+            The definitive dictionary for every data asset in DeliveryFlow. From operational PostgreSQL source tables and real-time Kafka event streams to Medallion Lakehouse tables in Apache Iceberg and sub-second ClickHouse OLAP views.
+          </p>
+
+          <div class="hero-stats-bar">
+            <div class="hero-stat">
+              <div class="hero-stat__number">7</div>
+              <div class="hero-stat__label">PostgreSQL Sources</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Kafka Event Topics</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">5</div>
+              <div class="hero-stat__label">Iceberg Lakehouse Tables</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">9</div>
+              <div class="hero-stat__label">ClickHouse Tables &amp; Views</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">12</div>
+              <div class="hero-stat__label">Production BI Charts</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Master Lineage Matrix -->
+        <section id="lineage-matrix">
+          <h2>End-to-End Data Lineage Matrix</h2>
+          <p>
+            This matrix tracks the flow of data through each layer of the platform, detailing where records originate, how they are processed, where they are stored, and which executive charts consume them.
+          </p>
+
+          <div class="table-container">
+            <div class="table-filter-bar">
+              <div style="font-weight: 700; font-size: 0.88rem;">DeliveryFlow Platform Data Lineage</div>
+              <input type="text" class="table-filter-input" placeholder="Filter lineage by table or topic..." data-table-filter="lineage-table">
+            </div>
+            <table class="data-table" id="lineage-table">
+              <thead>
+                <tr>
+                  <th>Data Domain</th>
+                  <th>Origin Source</th>
+                  <th>Ingestion / Stream Log</th>
+                  <th>Compute Engine</th>
+                  <th>Storage &amp; Lakehouse</th>
+                  <th>Serving Layer</th>
+                  <th>Superset Asset</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Delivery Lifecycle</strong></td>
+                  <td>Postgres <code>customer_orders</code>, <code>shipments</code>, <code>delivery_plans</code></td>
+                  <td>Kafka <code>delivery-events</code> (Key: <code>delivery_id</code>)</td>
+                  <td>Apache Flink (<code>DeliveryStreamingJob</code>)</td>
+                  <td>ClickHouse <code>delivery.delivery_events</code> (MergeTree, 30d TTL)</td>
+                  <td><code>delivery.delivery_current_state</code> (ReplacingMergeTree)</td>
+                  <td>DeliveryFlow Operations Dashboard (5 charts)</td>
+                </tr>
+                <tr>
+                  <td><strong>Fleet Telemetry</strong></td>
+                  <td>IoT Telemetry Generator (GPS, OBD-II)</td>
+                  <td>Kafka <code>vehicle-telemetry-events</code> (Key: <code>vehicle_id</code>)</td>
+                  <td>Flink SQL (<code>VehicleTelemetrySqlJob</code>)</td>
+                  <td>ClickHouse <code>fleet.vehicle_telemetry_events</code></td>
+                  <td><code>fleet.vehicle_current_state</code>, <code>fleet.vehicle_metrics_5m</code></td>
+                  <td>Vehicle Fleet Telemetry &amp; Utilization Analytics</td>
+                </tr>
+                <tr>
+                  <td><strong>Daily Delivery KPIs</strong></td>
+                  <td>ClickHouse <code>delivery.delivery_events</code></td>
+                  <td>Spark Batch JDBC Extraction</td>
+                  <td>Apache Spark (<code>daily_kpi_job.py</code>)</td>
+                  <td>Iceberg Bronze: <code>nessie.bronze.raw_delivery_events</code><br>Iceberg Gold: <code>nessie.gold.daily_delivery_kpi</code></td>
+                  <td>ClickHouse <code>delivery.daily_delivery_kpi</code> (via <code>v_warehouse_daily_kpi</code>)</td>
+                  <td>Operational Delivery SLA &amp; Warehouse KPIs</td>
+                </tr>
+                <tr>
+                  <td><strong>Transportation Costs</strong></td>
+                  <td>Postgres <code>public.transportation_costs</code></td>
+                  <td>Airflow Daily DAG (<code>delivery_transportation_cost_daily_batch</code>)</td>
+                  <td>Apache Spark (<code>transportation_cost_kpi_job.py</code>)</td>
+                  <td>Iceberg Bronze: <code>nessie.bronze.transportation_costs</code><br>Iceberg Silver: <code>nessie.silver.transportation_costs_enriched</code><br>Iceberg Gold: <code>nessie.gold.daily_transportation_cost_kpi</code></td>
+                  <td>ClickHouse <code>delivery.daily_transportation_cost_kpi</code> (via <code>v_transportation_cost_performance</code>)</td>
+                  <td>Transportation Cost &amp; Route Performance (7 charts)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- PostgreSQL Operational Source Schema -->
+        <section id="postgres-sources">
+          <h2>PostgreSQL Relational Source Tables</h2>
+          <p>
+            The operational source of truth is stored in PostgreSQL (<code>logistics_source</code> database on port <code>5433</code>). It maintains enterprise relational integrity across 7 core logistics entities:
+          </p>
+
+          <!-- 1. warehouses -->
+          <h3>1. <code>warehouses</code></h3>
+          <p>Physical fulfillment centers and regional distribution hubs.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>warehouse_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique warehouse identifier (e.g. <code>WH-001</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>warehouse_name</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Human-readable warehouse facility name</td>
+                </tr>
+                <tr>
+                  <td><code>region</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Operating geographic region (e.g. <code>Baku-North</code>, <code>Absheron</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>city</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>City location of the logistics hub</td>
+                </tr>
+                <tr>
+                  <td><code>latitude</code></td>
+                  <td class="col-type">NUMERIC(9,6)</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Geographic latitude coordinate</td>
+                </tr>
+                <tr>
+                  <td><code>longitude</code></td>
+                  <td class="col-type">NUMERIC(9,6)</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Geographic longitude coordinate</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Timestamp when warehouse record was registered</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 2. vehicles -->
+          <h3>2. <code>vehicles</code></h3>
+          <p>Physical fleet transport vehicles operating logistics delivery routes.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>vehicle_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique vehicle identification code (e.g. <code>VEH-101</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>plate_number</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>UNIQUE</td>
+                  <td>NO</td>
+                  <td>Government vehicle registration plate</td>
+                </tr>
+                <tr>
+                  <td><code>vehicle_type</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Classification: <code>van</code>, <code>truck</code>, <code>sprinter</code></td>
+                </tr>
+                <tr>
+                  <td><code>capacity_total</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt; 0)</td>
+                  <td>NO</td>
+                  <td>Maximum package cargo carrying capacity</td>
+                </tr>
+                <tr>
+                  <td><code>active</code></td>
+                  <td class="col-type">BOOLEAN</td>
+                  <td>DEFAULT true</td>
+                  <td>NO</td>
+                  <td>Operational flag for active duty deployment</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Timestamp vehicle was onboarded to the fleet</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 3. drivers -->
+          <h3>3. <code>drivers</code></h3>
+          <p>Certified delivery personnel responsible for executing shipments.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>driver_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique employee ID (e.g. <code>DRV-501</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>full_name</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Full legal name of the driver</td>
+                </tr>
+                <tr>
+                  <td><code>phone_number</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>YES</td>
+                  <td>Contact telephone number for dispatch support</td>
+                </tr>
+                <tr>
+                  <td><code>active</code></td>
+                  <td class="col-type">BOOLEAN</td>
+                  <td>DEFAULT true</td>
+                  <td>NO</td>
+                  <td>Current employment and availability status</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Driver onboarding registration timestamp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 4. customer_orders -->
+          <h3>4. <code>customer_orders</code></h3>
+          <p>Commercial orders submitted by customers requiring freight or parcel transport.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>order_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Commercial order reference identifier</td>
+                </tr>
+                <tr>
+                  <td><code>customer_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>YES</td>
+                  <td>Customer account or profile identifier</td>
+                </tr>
+                <tr>
+                  <td><code>customer_region</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Target delivery destination region</td>
+                </tr>
+                <tr>
+                  <td><code>destination_city</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>YES</td>
+                  <td>Target city for final delivery handover</td>
+                </tr>
+                <tr>
+                  <td><code>destination_latitude</code></td>
+                  <td class="col-type">NUMERIC(9,6)</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Destination delivery latitude coordinate</td>
+                </tr>
+                <tr>
+                  <td><code>destination_longitude</code></td>
+                  <td class="col-type">NUMERIC(9,6)</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Destination delivery longitude coordinate</td>
+                </tr>
+                <tr>
+                  <td><code>service_level</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>DEFAULT 'standard'</td>
+                  <td>NO</td>
+                  <td>SLA Tier: <code>standard</code>, <code>express</code>, <code>same_day</code></td>
+                </tr>
+                <tr>
+                  <td><code>priority</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>DEFAULT 'normal'</td>
+                  <td>NO</td>
+                  <td>Priority ranking: <code>low</code>, <code>normal</code>, <code>high</code>, <code>urgent</code></td>
+                </tr>
+                <tr>
+                  <td><code>package_count</code></td>
+                  <td class="col-type">INTEGER</td>
+                  <td>CHECK (&gt; 0)</td>
+                  <td>NO</td>
+                  <td>Number of physical parcel units in order</td>
+                </tr>
+                <tr>
+                  <td><code>order_value</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Monetary declared order valuation (AZN / USD)</td>
+                </tr>
+                <tr>
+                  <td><code>payment_method</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>DEFAULT 'card'</td>
+                  <td>NO</td>
+                  <td>Billing method: <code>card</code>, <code>cash</code>, <code>corporate_invoice</code></td>
+                </tr>
+                <tr>
+                  <td><code>order_created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Timestamp order was created by customer</td>
+                </tr>
+                <tr>
+                  <td><code>promised_delivery_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Customer SLA committed delivery deadline</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Database record ingestion timestamp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 5. shipments -->
+          <h3>5. <code>shipments</code></h3>
+          <p>Logistics packaging unit linking customer orders to originating fulfillment warehouses.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>shipment_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique shipment tracking code (e.g. <code>SHP-9021</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>order_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; customer_orders</td>
+                  <td>NO</td>
+                  <td>Associated customer order identifier</td>
+                </tr>
+                <tr>
+                  <td><code>warehouse_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; warehouses</td>
+                  <td>NO</td>
+                  <td>Fulfillment facility handling dispatch</td>
+                </tr>
+                <tr>
+                  <td><code>shipment_status</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Lifecycle state: <code>PENDING</code>, <code>PACKED</code>, <code>DISPATCHED</code></td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Shipment package record creation timestamp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 6. delivery_plans -->
+          <h3>6. <code>delivery_plans</code></h3>
+          <p>Scheduled dispatch plan assigning a shipment to a specific vehicle, driver, and transit corridor.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>delivery_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique operational delivery transit ID (e.g. <code>DEL-10492</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>shipment_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; shipments</td>
+                  <td>NO</td>
+                  <td>Shipment package assigned to this transit</td>
+                </tr>
+                <tr>
+                  <td><code>vehicle_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; vehicles</td>
+                  <td>NO</td>
+                  <td>Assigned transport vehicle unit</td>
+                </tr>
+                <tr>
+                  <td><code>driver_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; drivers</td>
+                  <td>NO</td>
+                  <td>Assigned delivery driver</td>
+                </tr>
+                <tr>
+                  <td><code>route_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Designated logistics corridor (e.g. <code>RT-BAKU-SUMQAYIT</code>)</td>
+                </tr>
+                <tr>
+                  <td><code>planned_departure_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Scheduled warehouse exit timestamp</td>
+                </tr>
+                <tr>
+                  <td><code>planned_arrival_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Scheduled destination arrival timestamp</td>
+                </tr>
+                <tr>
+                  <td><code>planned_distance_km</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Estimated corridor transit distance in km</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Plan scheduling timestamp</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 7. transportation_costs -->
+          <h3>7. <code>transportation_costs</code></h3>
+          <p>Financial ledger records capturing cost breakdowns and fuel metrics for executed routes.</p>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Column</th>
+                  <th>Type</th>
+                  <th>Constraint</th>
+                  <th>Nullable</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>cost_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">PRIMARY KEY</td>
+                  <td>NO</td>
+                  <td>Unique financial ledger cost record identifier</td>
+                </tr>
+                <tr>
+                  <td><code>business_date</code></td>
+                  <td class="col-type">DATE</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Accounting operating date of route execution</td>
+                </tr>
+                <tr>
+                  <td><code>delivery_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; delivery_plans</td>
+                  <td>NO</td>
+                  <td>Associated operational delivery transit plan</td>
+                </tr>
+                <tr>
+                  <td><code>route_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Corridor code for cost allocation and benchmarking</td>
+                </tr>
+                <tr>
+                  <td><code>vehicle_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; vehicles</td>
+                  <td>NO</td>
+                  <td>Vehicle unit incurring operating expenses</td>
+                </tr>
+                <tr>
+                  <td><code>warehouse_id</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td class="col-key">FK &rarr; warehouses</td>
+                  <td>NO</td>
+                  <td>Originating dispatch warehouse</td>
+                </tr>
+                <tr>
+                  <td><code>region</code></td>
+                  <td class="col-type">TEXT</td>
+                  <td>&mdash;</td>
+                  <td>NO</td>
+                  <td>Geographic territory for regional cost P&amp;L</td>
+                </tr>
+                <tr>
+                  <td><code>planned_distance_km</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Budgeted route distance in kilometers</td>
+                </tr>
+                <tr>
+                  <td><code>actual_distance_km</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>GPS odometer measured distance driven</td>
+                </tr>
+                <tr>
+                  <td><code>planned_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Target operating budget allocated for route</td>
+                </tr>
+                <tr>
+                  <td><code>fuel_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Direct diesel or gasoline expense incurred</td>
+                </tr>
+                <tr>
+                  <td><code>driver_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Driver wage, overtime, and trip allowance</td>
+                </tr>
+                <tr>
+                  <td><code>toll_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Highway and toll road transit charges</td>
+                </tr>
+                <tr>
+                  <td><code>maintenance_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Vehicle wear-and-tear &amp; servicing allocation</td>
+                </tr>
+                <tr>
+                  <td><code>other_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Incidental parking, loading, and handling fees</td>
+                </tr>
+                <tr>
+                  <td><code>actual_total_cost</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (sum of parts)</td>
+                  <td>NO</td>
+                  <td><code>fuel + driver + toll + maintenance + other</code></td>
+                </tr>
+                <tr>
+                  <td><code>fuel_liters</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Total fuel volume consumed during trip</td>
+                </tr>
+                <tr>
+                  <td><code>delivery_count</code></td>
+                  <td class="col-type">INTEGER</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Total drops completed on this corridor</td>
+                </tr>
+                <tr>
+                  <td><code>vehicle_capacity</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&gt; 0)</td>
+                  <td>NO</td>
+                  <td>Max vehicle payload volume/package ceiling</td>
+                </tr>
+                <tr>
+                  <td><code>used_capacity</code></td>
+                  <td class="col-type">NUMERIC(12,2)</td>
+                  <td>CHECK (&lt;= capacity)</td>
+                  <td>NO</td>
+                  <td>Actual cargo loaded during transit run</td>
+                </tr>
+                <tr>
+                  <td><code>planned_duration_minutes</code></td>
+                  <td class="col-type">INTEGER</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Estimated schedule duration from plan</td>
+                </tr>
+                <tr>
+                  <td><code>actual_duration_minutes</code></td>
+                  <td class="col-type">INTEGER</td>
+                  <td>CHECK (&gt;= 0)</td>
+                  <td>NO</td>
+                  <td>Actual transit elapsed time from dispatch to end</td>
+                </tr>
+                <tr>
+                  <td><code>created_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Audit record creation timestamp</td>
+                </tr>
+                <tr>
+                  <td><code>updated_at</code></td>
+                  <td class="col-type">TIMESTAMPTZ</td>
+                  <td>DEFAULT now()</td>
+                  <td>NO</td>
+                  <td>Batch watermark timestamp for incremental ETL</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Streaming Event Schemas (Kafka) -->
+        <section id="kafka-schemas">
+          <h2>Streaming Event Schemas &amp; Contracts</h2>
+          <p>
+            DeliveryFlow enforces strict, versioned JSON event contracts across its Apache Kafka message bus.
+          </p>
+
+          <!-- Topic 1: delivery-events -->
+          <h3>1. Topic: <code>delivery-events</code></h3>
+          <p>
+            Keyed by <code>delivery_id</code> to guarantee strict in-order state transitions for every parcel delivery from dispatch to handover.
+          </p>
+
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-header__lang">JSON Event Contract (Schema v1) &mdash; delivery-events</span>
+              <button class="btn-copy" type="button" data-copy='{
+  "schema_version": 1,
+  "event_id": "EVT-8b7a4c9f-3d2e-4f1a-b6e8",
+  "event_type": "IN_TRANSIT",
+  "event_timestamp": "2026-09-05T14:32:00.000Z",
+  "delivery_id": "DEL-10492",
+  "shipment_id": "SHP-9021",
+  "order_id": "ORD-54892",
+  "vehicle_id": "VEH-101",
+  "driver_id": "DRV-501",
+  "route_id": "RT-BAKU-SUMQAYIT",
+  "warehouse_id": "WH-001",
+  "region": "Absheron",
+  "status": "IN_TRANSIT",
+  "latitude": 40.409264,
+  "longitude": 49.867092,
+  "planned_arrival_timestamp": "2026-09-05T15:30:00.000Z",
+  "estimated_arrival_timestamp": "2026-09-05T15:45:00.000Z",
+  "delay_minutes": 15,
+  "payload": {
+    "capacity_used": 85.0,
+    "capacity_total": 100.0,
+    "service_level": "express",
+    "priority": "normal",
+    "package_count": 3,
+    "order_value": 240.50,
+    "traffic_condition": "medium",
+    "weather_condition": "clear"
+  }
+}'>Copy Contract JSON</button>
+            </div>
+            <div class="code-body">
+              <pre><code>{
+  "schema_version": 1,
+  "event_id": "EVT-8b7a4c9f-3d2e-4f1a-b6e8",
+  "event_type": "IN_TRANSIT",
+  "event_timestamp": "2026-09-05T14:32:00.000Z",
+  "delivery_id": "DEL-10492",
+  "shipment_id": "SHP-9021",
+  "order_id": "ORD-54892",
+  "vehicle_id": "VEH-101",
+  "driver_id": "DRV-501",
+  "route_id": "RT-BAKU-SUMQAYIT",
+  "warehouse_id": "WH-001",
+  "region": "Absheron",
+  "status": "IN_TRANSIT",
+  "latitude": 40.409264,
+  "longitude": 49.867092,
+  "planned_arrival_timestamp": "2026-09-05T15:30:00.000Z",
+  "estimated_arrival_timestamp": "2026-09-05T15:45:00.000Z",
+  "delay_minutes": 15,
+  "payload": {
+    "capacity_used": 85.0,
+    "capacity_total": 100.0,
+    "service_level": "express",
+    "priority": "normal",
+    "package_count": 3,
+    "order_value": 240.50,
+    "traffic_condition": "medium",
+    "weather_condition": "clear"
+  }
+}</code></pre>
+            </div>
+          </div>
+
+          <!-- Topic 2: vehicle-telemetry-events -->
+          <h3>2. Topic: <code>vehicle-telemetry-events</code></h3>
+          <p>
+            Keyed by <code>vehicle_id</code> for independent vehicle IoT monitoring, high-speed telemetry streaming, and fuel/engine anomaly detection.
+          </p>
+
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-header__lang">JSON Event Contract (Schema v1) &mdash; vehicle-telemetry-events</span>
+              <button class="btn-copy" type="button" data-copy='{
+  "schema_version": 1,
+  "event_id": "TEL-f49c-491a-a89b-73b84",
+  "event_type": "VEHICLE_TELEMETRY",
+  "event_timestamp": "2026-09-05T14:32:05.000Z",
+  "ingestion_timestamp": "2026-09-05T14:32:05.102Z",
+  "vehicle_id": "VEH-101",
+  "driver_id": "DRV-501",
+  "latitude": 40.412400,
+  "longitude": 49.871200,
+  "speed_kmh": 68.5,
+  "fuel_level_pct": 64.2,
+  "engine_temperature_c": 91.0,
+  "odometer_km": 14250.8,
+  "engine_status": "RUNNING",
+  "vehicle_status": "IN_TRANSIT"
+}'>Copy Contract JSON</button>
+            </div>
+            <div class="code-body">
+              <pre><code>{
+  "schema_version": 1,
+  "event_id": "TEL-f49c-491a-a89b-73b84",
+  "event_type": "VEHICLE_TELEMETRY",
+  "event_timestamp": "2026-09-05T14:32:05.000Z",
+  "ingestion_timestamp": "2026-09-05T14:32:05.102Z",
+  "vehicle_id": "VEH-101",
+  "driver_id": "DRV-501",
+  "latitude": 40.412400,
+  "longitude": 49.871200,
+  "speed_kmh": 68.5,
+  "fuel_level_pct": 64.2,
+  "engine_temperature_c": 91.0,
+  "odometer_km": 14250.8,
+  "engine_status": "RUNNING",
+  "vehicle_status": "IN_TRANSIT"
+}</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- Lakehouse Medallion Architecture (Apache Iceberg) -->
+        <section id="iceberg-lakehouse">
+          <h2>Analytical Lakehouse Schema (Apache Iceberg)</h2>
+          <p>
+            DeliveryFlow organizes its historical analytical storage using the <strong>Medallion Architecture (Bronze, Silver, Gold)</strong> backed by Apache Iceberg, Project Nessie REST catalog, and MinIO S3 object storage (<code>s3://delivery-lakehouse/warehouse/</code>).
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Lakehouse Layer</th>
+                  <th>Full Iceberg Identifier</th>
+                  <th>Partitioning Strategy</th>
+                  <th>Transformation Logic</th>
+                  <th>Primary Downstream Consumer</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="status-pill status-pill--warning">Bronze (Raw)</span></td>
+                  <td><code>nessie.bronze.raw_delivery_events</code></td>
+                  <td><code>days(event_timestamp)</code></td>
+                  <td>Raw append-only event stream from ClickHouse JDBC; appends <code>_ingested_at</code> and <code>_pipeline_run_id</code>.</td>
+                  <td>Historical audits, replay jobs, data scientists.</td>
+                </tr>
+                <tr>
+                  <td><span class="status-pill status-pill--warning">Bronze (Raw)</span></td>
+                  <td><code>nessie.bronze.transportation_costs</code></td>
+                  <td><code>business_date</code></td>
+                  <td>Raw operational snapshots extracted from Postgres <code>transportation_costs</code>.</td>
+                  <td>Silver layer ETL processing.</td>
+                </tr>
+                <tr>
+                  <td><span class="status-pill status-pill--info">Silver (Cleaned)</span></td>
+                  <td><code>nessie.silver.transportation_costs_enriched</code></td>
+                  <td><code>business_date</code></td>
+                  <td>Calculates variance (actual - planned), unit economics (<code>cost_per_km</code>, <code>cost_per_delivery</code>), and capacity utilization.</td>
+                  <td>Gold KPI aggregations &amp; ad-hoc analytics.</td>
+                </tr>
+                <tr>
+                  <td><span class="status-pill status-pill--success">Gold (Curated)</span></td>
+                  <td><code>nessie.gold.daily_delivery_kpi</code></td>
+                  <td><code>business_date</code>, <code>region</code></td>
+                  <td>Aggregates completion count, SLA delay rate, on-time percentage, and average delay minutes by warehouse and date.</td>
+                  <td>ClickHouse publishing &amp; executive reporting.</td>
+                </tr>
+                <tr>
+                  <td><span class="status-pill status-pill--success">Gold (Curated)</span></td>
+                  <td><code>nessie.gold.daily_transportation_cost_kpi</code></td>
+                  <td><code>business_date</code>, <code>warehouse_id</code></td>
+                  <td>Corridor-level route financial aggregates: planned vs actual cost, fuel %, duration variance, and risk index.</td>
+                  <td>ClickHouse publishing &amp; Superset Dashboard.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ClickHouse OLAP Serving Layer -->
+        <section id="clickhouse-olap">
+          <h2>Real-Time OLAP Layer (ClickHouse)</h2>
+          <p>
+            ClickHouse acts as the high-speed analytical serving database, hosting 2 dedicated databases: <code>delivery</code> and <code>fleet</code>.
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Database.Table / View</th>
+                  <th>Table Engine</th>
+                  <th>Partition Key</th>
+                  <th>Sorting / Deduplication Key</th>
+                  <th>TTL / Retention</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>delivery.delivery_events</code></td>
+                  <td><code>MergeTree</code></td>
+                  <td><code>toYYYYMM(event_timestamp)</code></td>
+                  <td><code>(delivery_id, event_timestamp, event_id)</code></td>
+                  <td><span class="status-pill status-pill--danger">30 Days</span></td>
+                </tr>
+                <tr>
+                  <td><code>delivery.delivery_current_state</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td>&mdash;</td>
+                  <td><code>delivery_id</code></td>
+                  <td>Active state (Indefinite)</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.vehicle_current_state</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td>&mdash;</td>
+                  <td><code>vehicle_id</code></td>
+                  <td>Active state (Indefinite)</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.daily_delivery_kpi</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td><code>toYYYYMM(business_date)</code></td>
+                  <td><code>(business_date, region, warehouse_id)</code></td>
+                  <td>Historical snapshot</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.daily_transportation_cost_kpi</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td><code>toYYYYMM(business_date)</code></td>
+                  <td><code>(business_date, warehouse_id, region, route_id)</code></td>
+                  <td>Historical snapshot</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.v_transportation_cost_performance</code></td>
+                  <td><code>VIEW</code> (Left Join)</td>
+                  <td>&mdash;</td>
+                  <td>Joins <code>daily_transportation_cost_kpi FINAL</code> with delivery event delay signals</td>
+                  <td>Virtual view</td>
+                </tr>
+                <tr>
+                  <td><code>fleet.vehicle_telemetry_events</code></td>
+                  <td><code>MergeTree</code></td>
+                  <td><code>toYYYYMM(event_timestamp)</code></td>
+                  <td><code>(vehicle_id, event_timestamp, event_id)</code></td>
+                  <td><span class="status-pill status-pill--danger">30 Days</span></td>
+                </tr>
+                <tr>
+                  <td><code>fleet.vehicle_current_state</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td>&mdash;</td>
+                  <td><code>vehicle_id</code></td>
+                  <td>Active state</td>
+                </tr>
+                <tr>
+                  <td><code>fleet.vehicle_metrics_5m</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td><code>toYYYYMM(window_start)</code></td>
+                  <td><code>window_start</code></td>
+                  <td>5-min tumbling aggregate</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Navigation Next Steps -->
+        <div class="alert alert-success">
+          <div>
+            <div class="alert-title">Explore Related Architectural Documents</div>
+            Learn how these schemas interact with streaming jobs and batch pipelines:
+            <ul style="margin: 0.5rem 0 0 0; padding-left: 1.25rem;">
+              <li><a href="postgres-source-tables.html">PostgreSQL Source Deep Dive &rarr;</a></li>
+              <li><a href="streaming-architecture.html">Streaming Engine &amp; Kafka Contracts &rarr;</a></li>
+              <li><a href="transportation-cost-flow.html">Transportation Cost Pipeline &rarr;</a></li>
+              <li><a href="superset-serving.html">Superset BI Serving &amp; Dashboards &rarr;</a></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+    </main>
+
+    <!-- Right Sticky TOC -->
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-nav">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#lineage-matrix">Lineage Matrix</a></li>
+        <li><a href="#postgres-sources">PostgreSQL Sources</a></li>
+        <li><a href="#kafka-schemas">Kafka Schemas</a></li>
+        <li><a href="#iceberg-lakehouse">Iceberg Lakehouse</a></li>
+        <li><a href="#clickhouse-olap">ClickHouse OLAP</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>

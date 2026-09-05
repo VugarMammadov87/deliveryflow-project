@@ -1,54 +1,10 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Superset Serving Strategy | DeliveryFlow Docs</title>
-    <link rel="stylesheet" href="assets/css/documentation.css">
-    <script src="assets/js/documentation.js" defer></script>
-  </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-shell">
-      <nav class="portal-nav" aria-label="Documentation navigation">
-        <a class="brand" href="index.html">DeliveryFlow Docs</a>
-        <div>
-          <a href="architecture-decisions.html">Architecture</a>
-          <a href="application-workflow.html">Workflow</a>
-          <a href="superset-serving.html">BI</a>
-          <a href="scalability-multi-application.html">Scale</a>
-        </div>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
-      </nav>
-      <section class="doc-hero">
-        <p class="eyebrow">Converted Documentation</p>
-        <h1>Superset Serving Strategy</h1>
-        <p>Converted from docs/superset-serving.md. The Markdown source remains available for editing and review.</p>
-      </section>
-    </header>
-    <main id="main" class="doc-layout">
-      <aside class="doc-toc" aria-label="Page sections"><a href="#superset-serving-strategy">Superset Serving Strategy</a>
-<a href="#current-bi-scope">Current BI Scope</a>
-<a href="#why-superset">Why Superset?</a>
-<a href="#local-access">Local Access</a>
-<a href="#superset-data-layer">Superset Data Layer</a>
-<a href="#dataset-sources">Dataset Sources</a>
-<a href="#dashboard-design">Dashboard Design</a>
-<a href="#report-1-delivery-status-overview">Report 1: Delivery Status Overview</a>
-<a href="#report-2-delay-by-region-and-service-level">Report 2: Delay by Region and Service Level</a>
-<a href="#report-3-vehicle-utilization">Report 3: Vehicle Utilization</a>
-<a href="#report-4-warehouse-daily-kpi">Report 4: Warehouse Daily KPI</a>
-<a href="#report-5-delivery-event-volume">Report 5: Delivery Event Volume</a>
-<a href="#dashboard-layout-proposal">Dashboard Layout Proposal</a>
-<a href="#superset-setup-steps">Superset Setup Steps</a>
-<a href="#debugging-and-verification">Debugging and Verification</a>
-<a href="#important-note">Important Note</a>
-<a href="#bi-as-code-model">BI-as-Code Model</a></aside>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Superset BI Serving &amp; Analytics | DeliveryFlow Docs</title>
-  <meta name="description" content="Technical guide for BI-as-code, ClickHouse views, and Superset dashboard reports in DeliveryFlow.">
+  <meta name="description" content="Technical guide for declarative BI-as-Code, ClickHouse serving datasets, and Apache Superset dashboards in DeliveryFlow.">
   <link rel="stylesheet" href="assets/css/documentation.css">
   <script src="assets/js/documentation.js" defer></script>
 </head>
@@ -56,8 +12,9 @@
   <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Analytics</span>
+        <span class="brand__badge">BI Serving</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -71,6 +28,7 @@
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html">Platform Overview</a></li>
           <li><a href="developer-guide.html">Developer Guide</a></li>
@@ -83,6 +41,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -92,6 +51,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html" class="active">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -106,603 +66,449 @@
 
     <main class="main-content">
       <article class="doc-article">
-        <h2 id="superset-serving-strategy">Superset Serving Strategy</h2>
-<h3 id="current-bi-scope">Current BI Scope</h3>
-<p>Superset BI-as-code currently covers the <code>delivery</code> application dashboard and its five approved statistics. The new <code>fleet</code> stream application writes serving tables into ClickHouse <code>fleet.*</code>, but no fleet Superset dashboard is imported yet.</p>
-<p>This separation is intentional:</p>
-<ul>
-<li><code>delivery</code> BI assets stay in <code>configs/superset/deliveryflow_bi.yaml</code>.</li>
-<li><code>fleet</code> serving tables are ready for future BI assets.</li>
-<li>Future domains should use separate BI metadata instead of putting every dashboard into one YAML file.</li>
-</ul>
-<p>Fleet tables available for future Superset datasets:</p>
-<ul>
-<li><code>fleet.vehicle_telemetry_events</code></li>
-<li><code>fleet.vehicle_current_state</code></li>
-<li><code>fleet.vehicle_health_alerts</code></li>
-<li><code>fleet.vehicle_metrics_5m</code></li>
-</ul>
-<p>This document explains the BI serving strategy for DeliveryFlow. Apache Superset provides the BI and dashboard layer. Superset runs within Docker Compose and reads prepared serving tables and views from ClickHouse.</p>
-<h3 id="why-superset">Why Superset?</h3>
-<p>Superset fits this local lab because it:</p>
-<ul>
-<li>Runs within Docker Compose.</li>
-<li>Works directly with ClickHouse.</li>
-<li>Separates dashboards, charts, and datasets.</li>
-<li>Can display stream and batch results in the same UI.</li>
-<li>Does not require an additional desktop BI tool for local development.</li>
-</ul>
-<pre><code>
-flowchart LR
-    flink[&quot;Flink Stream Job&quot;]
-    spark[&quot;Spark Batch Job&quot;]
-    clickhouse[&quot;ClickHouse&lt;br/&gt;Serving Database&quot;]
-    views[&quot;Prepared Report Views&quot;]
-    superset[&quot;Apache Superset&quot;]
-    users[&quot;Data / Business User&quot;]
-        <h1>Superset BI Serving &amp; Analytics</h1>
-        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
-          DeliveryFlow treats business intelligence as code. Instead of configuring dashboards through manual clicks, all ClickHouse datasets, chart visual specifications, and layout coordinates are defined declaratively in version-controlled YAML and deployed via Superset's REST API.
-        </p>
-
-    flink --&gt;|operational state| clickhouse
-    spark --&gt;|daily KPI| clickhouse
-    clickhouse --&gt; views
-    views --&gt; superset
-    superset --&gt; users
-</code></pre>
-<h3 id="local-access">Local Access</h3>
-<p>Superset URL:</p>
-<pre><code>
-http://localhost:8088
-</code></pre>
-<p>Default local login:</p>
-<pre><code>
-username: admin
-password: admin
-</code></pre>
-<p>SQLAlchemy URI for the ClickHouse connection:</p>
-<pre><code>
-clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
-</code></pre>
-<h3 id="superset-data-layer">Superset Data Layer</h3>
-<p>Superset should not read from Kafka or raw object-storage files. In this project, the approved serving layer for Superset is ClickHouse.</p>
-<p>Main reasons:</p>
-<ul>
-<li>Kafka is an event stream, not a dashboard query engine.</li>
-<li>MinIO/Iceberg provide analytical storage and are not selected for direct dashboard latency.</li>
-<li>ClickHouse is a columnar serving database better suited to dashboard queries.</li>
-</ul>
-<h3 id="dataset-sources">Dataset Sources</h3>
-<p>These tables and views should be used as Superset datasets.</p>
-<p>Primary tables:</p>
-<ul>
-<li><code>delivery.delivery_events</code></li>
-<li><code>delivery.delivery_current_state</code></li>
-<li><code>delivery.vehicle_current_state</code></li>
-<li><code>delivery.daily_delivery_kpi</code></li>
-</ul>
-<p>Prepared report views:</p>
-<ul>
-<li><code>delivery.v_delivery_status_overview</code></li>
-<li><code>delivery.v_delay_by_region</code></li>
-<li><code>delivery.v_vehicle_utilization</code></li>
-<li><code>delivery.v_warehouse_daily_kpi</code></li>
-<li><code>delivery.v_delivery_event_volume</code></li>
-</ul>
-<pre><code>
-flowchart TB
-    subgraph tables[&quot;ClickHouse Base Tables&quot;]
-        events[&quot;delivery_events&quot;]
-        deliveryState[&quot;delivery_current_state&quot;]
-        vehicleState[&quot;vehicle_current_state&quot;]
-        dailyKpi[&quot;daily_delivery_kpi&quot;]
-    end
-        <h2 id="bi-architecture">BI-as-Code Architecture</h2>
-        <p>
-          Dashboards must be reproducible across environments. DeliveryFlow achieves this by using ClickHouse analytical SQL views as the interface contract, configured in code and imported automatically:
-        </p>
-
-    subgraph reportViews[&quot;BI-Ready Views&quot;]
-        statusOverview[&quot;v_delivery_status_overview&quot;]
-        delayRegion[&quot;v_delay_by_region&quot;]
-        vehicleUtil[&quot;v_vehicle_utilization&quot;]
-        warehouseKpi[&quot;v_warehouse_daily_kpi&quot;]
-        eventVolume[&quot;v_delivery_event_volume&quot;]
-    end
-        <div class="diagram-container">
-          <div class="flow-grid">
-            <div class="flow-step">
-              <div class="flow-step__title">1. Serving Contract</div>
-              <div class="flow-step__tech">ClickHouse Views</div>
-              <div class="flow-step__desc">Prepared SQL aggregations</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">2. Versioned Spec</div>
-              <div class="flow-step__tech">deliveryflow_bi.yaml</div>
-              <div class="flow-step__desc">Declarative dataset &amp; chart definitions</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">3. Automated Importer</div>
-              <div class="flow-step__tech">import_superset_assets.py</div>
-              <div class="flow-step__desc">Calls Superset REST API</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">4. Live BI UI</div>
-              <div class="flow-step__tech">Apache Superset</div>
-              <div class="flow-step__desc">Ready-to-use operational dashboard</div>
-            </div>
-          </div>
-          <div class="diagram-caption">Figure 1: Automated BI-as-code deployment lifecycle.</div>
-        </div>
-
-    subgraph dashboard[&quot;Superset Dashboard&quot;]
-        chart1[&quot;Status Overview&quot;]
-        chart2[&quot;Delay by Region&quot;]
-        chart3[&quot;Vehicle Utilization&quot;]
-        chart4[&quot;Warehouse KPI&quot;]
-        chart5[&quot;Event Volume&quot;]
-    end
-        <h2 id="clickhouse-views">Prepared ClickHouse Analytical Views</h2>
-        <p>
-          Direct table queries from dashboards can cause performance degradation and complex metric definitions. DeliveryFlow defines five standard views in <code>services/clickhouse/init/001_delivery_schema.sql</code>:
-        </p>
-        <ul>
-          <li><code>delivery.v_delivery_status_overview</code>: Aggregates total events, distinct deliveries, and average delay by current status.</li>
-          <li><code>delivery.v_delay_by_region</code>: Calculates regional delay counts and delay percentages grouped by service level.</li>
-          <li><code>delivery.v_vehicle_utilization</code>: Computes average cargo capacity utilization per active vehicle.</li>
-          <li><code>delivery.v_warehouse_daily_kpi</code>: Exposes daily completed deliveries, on-time rates, and total package counts from the Spark Gold KPI table.</li>
-          <li><code>delivery.v_delivery_event_volume</code>: Buckets events into hourly intervals (<code>toStartOfHour(event_timestamp)</code>) to track intraday throughput.</li>
-        </ul>
-
-    events --&gt; statusOverview
-    events --&gt; delayRegion
-    vehicleState --&gt; vehicleUtil
-    dailyKpi --&gt; warehouseKpi
-    events --&gt; eventVolume
-        <h2 id="report-cards">The 5 Core Operational Report Cards</h2>
-        <p>
-          The <strong>DeliveryFlow Operations Dashboard</strong> provides five focused visualizations answering key logistics operational questions:
-        </p>
-
-    statusOverview --&gt; chart1
-    delayRegion --&gt; chart2
-    vehicleUtil --&gt; chart3
-    warehouseKpi --&gt; chart4
-    eventVolume --&gt; chart5
-</code></pre>
-<h3 id="dashboard-design">Dashboard Design</h3>
-<p>The Superset dashboard should contain five primary statistical reports. It should answer operational and analytical questions such as:</p>
-<ul>
-<li>What is the current delivery-status distribution?</li>
-<li>Which region and service level contribute most to delays?</li>
-<li>Is vehicle utilization within the expected range?</li>
-<li>How do daily KPIs change by warehouse?</li>
-<li>How is event volume distributed by hour?</li>
-</ul>
-<h3 id="report-1-delivery-status-overview">Report 1: Delivery Status Overview</h3>
-<p>Dataset:</p>
-<pre><code>
-delivery.v_delivery_status_overview
-</code></pre>
-<p>Purpose:</p>
-<p>Shows event and delivery counts by status. This chart provides a quick view of the operational state.</p>
-<p>Recommended chart:</p>
-<ul>
-<li>Bar Chart</li>
-</ul>
-<p>Metrics:</p>
-<ul>
-<li><code>event_count</code></li>
-<li><code>delivery_count</code></li>
-<li><code>avg_delay_minutes</code></li>
-</ul>
-<p>Dimensions:</p>
-<ul>
-<li><code>status</code></li>
-</ul>
-<p>Questions answered by the dashboard:</p>
-<ul>
-<li>Which status occurs most often?</li>
-<li>Which statuses show the most delay?</li>
-<li>Is the ratio of delivered to delayed events within the expected range?</li>
-</ul>
-<h3 id="report-2-delay-by-region-and-service-level">Report 2: Delay by Region and Service Level</h3>
-<p>Dataset:</p>
-<pre><code>
-delivery.v_delay_by_region
-</code></pre>
-<p>Purpose:</p>
-<p>Shows delay behavior by region and service level.</p>
-<p>Recommended chart:</p>
-<ul>
-<li>Heatmap</li>
-<li>Pivot Table</li>
-<li>Grouped Bar Chart</li>
-</ul>
-<p>Metrics:</p>
-<ul>
-<li><code>delay_rate</code></li>
-<li><code>avg_delay_minutes</code></li>
-<li><code>event_count</code></li>
-</ul>
-<p>Dimensions:</p>
-<ul>
-<li><code>region</code></li>
-<li><code>service_level</code></li>
-</ul>
-<p>Questions answered by the dashboard:</p>
-<ul>
-<li>Which region is delayed?</li>
-<li>Do express orders arrive later than standard orders?</li>
-<li>Do region and service level create a combined risk?</li>
-</ul>
-<h3 id="report-3-vehicle-utilization">Report 3: Vehicle Utilization</h3>
-<p>Dataset:</p>
-<pre><code>
-delivery.v_vehicle_utilization
-</code></pre>
-<p>Purpose:</p>
-<p>Shows the latest vehicle state and utilization level.</p>
-<p>Recommended chart:</p>
-<ul>
-<li>Table</li>
-<li>Bar Chart</li>
-<li>Big Number with Trend, when a separate filter is used</li>
-</ul>
-<p>Metrics:</p>
-<ul>
-<li><code>avg_utilization_ratio</code></li>
-<li><code>last_seen_at</code></li>
-</ul>
-<p>Dimensions:</p>
-<ul>
-<li><code>vehicle_id</code></li>
-<li><code>active_status</code></li>
-<li><code>route_id</code></li>
-</ul>
-<p>Questions answered by the dashboard:</p>
-<ul>
-<li>Which vehicle is carrying the highest load?</li>
-<li>When did each vehicle last send an event?</li>
-<li>Are any vehicles over- or under-utilized?</li>
-</ul>
-<h3 id="report-4-warehouse-daily-kpi">Report 4: Warehouse Daily KPI</h3>
-<p>Dataset:</p>
-<pre><code>
-delivery.v_warehouse_daily_kpi
-</code></pre>
-<p>Purpose:</p>
-<p>Shows daily KPIs by warehouse, region, and date. This chart is the main place to verify batch pipeline results.</p>
-<p>Recommended chart:</p>
-<ul>
-<li>Time-series Line Chart</li>
-<li>Table</li>
-<li>Mixed Chart</li>
-</ul>
-<p>Metrics:</p>
-<ul>
-<li><code>completed_deliveries</code></li>
-<li><code>delayed_deliveries</code></li>
-<li><code>on_time_deliveries</code></li>
-<li><code>delay_rate</code></li>
-<li><code>on_time_rate</code></li>
-<li><code>avg_vehicle_utilization</code></li>
-<li><code>total_order_value</code></li>
-<li><code>total_package_count</code></li>
-<li><code>avg_distance_km</code></li>
-</ul>
-<p>Dimensions:</p>
-<ul>
-<li><code>business_date</code></li>
-<li><code>region</code></li>
-<li><code>warehouse_id</code></li>
-</ul>
-<p>Questions answered by the dashboard:</p>
-<ul>
-<li>Is the daily completed-delivery count increasing?</li>
-<li>Which warehouse has the highest delay rate?</li>
-<li>Which region has the highest order value and package count?</li>
-<li>Is vehicle utilization consistent with warehouse performance?</li>
-</ul>
-<h3 id="report-5-delivery-event-volume">Report 5: Delivery Event Volume</h3>
-<p>Dataset:</p>
-<pre><code>
-delivery.v_delivery_event_volume
-</code></pre>
-<p>Purpose:</p>
-<p>Shows hourly event volume. This chart helps visually verify that the streaming pipeline is working.</p>
-<p>Recommended chart:</p>
-<ul>
-<li>Time-series Line Chart</li>
-<li>Stacked Bar Chart</li>
-</ul>
-<p>Metrics:</p>
-<ul>
-<li><code>event_count</code></li>
-<li><code>delivery_count</code></li>
-</ul>
-<p>Dimensions:</p>
-<ul>
-<li><code>event_hour</code></li>
-<li><code>event_type</code></li>
-<li><code>region</code></li>
-</ul>
-<p>Questions answered by the dashboard:</p>
-<ul>
-<li>Do events arrive at a stable rate by hour?</li>
-<li>Which event type is most common?</li>
-<li>How is event load distributed by region?</li>
-</ul>
-<h3 id="dashboard-layout-proposal">Dashboard Layout Proposal</h3>
-<pre><code>
-flowchart TB
-    title[&quot;DeliveryFlow Operations Dashboard&quot;]
-    row1a[&quot;Big Number&lt;br/&gt;Total Deliveries&quot;]
-    row1b[&quot;Big Number&lt;br/&gt;Delay Rate&quot;]
-    row1c[&quot;Big Number&lt;br/&gt;Avg Utilization&quot;]
-    row2a[&quot;Bar&lt;br/&gt;Status Overview&quot;]
-    row2b[&quot;Heatmap&lt;br/&gt;Delay by Region&quot;]
-    row3a[&quot;Line&lt;br/&gt;Hourly Event Volume&quot;]
-    row3b[&quot;Table&lt;br/&gt;Vehicle Utilization&quot;]
-    row4[&quot;Table / Line&lt;br/&gt;Warehouse Daily KPI&quot;]
-        <div class="service-card" style="margin-bottom: 1.25rem;">
-          <div class="service-card__header">
-            <h3 class="service-card__title">1. Delivery Status Overview</h3>
-            <span class="badge badge--implemented">Distribution Bar</span>
-          </div>
-          <div class="troubleshoot-grid">
-            <dt>Business Question</dt>
-            <dd>What is the distribution of parcel orders across active lifecycle stages?</dd>
-            <dt>ClickHouse View</dt>
-            <dd><code>v_delivery_status_overview</code></dd>
-            <dt>Metrics</dt>
-            <dd><code>event_count</code>, <code>avg_delay_minutes</code></dd>
-            <dt>Dimension</dt>
-            <dd><code>status</code> (ORDER_LOADED, VEHICLE_DEPARTED, IN_TRANSIT, DELIVERY_DELAYED, DELIVERED)</dd>
-            <dt>Operational Insight</dt>
-            <dd>Enables dispatchers to spot abnormal bottlenecks in parcel departure and transit stages.</dd>
-          </div>
-        </div>
-
-    title --&gt; row1a
-    title --&gt; row1b
-    title --&gt; row1c
-    row1a --&gt; row2a
-    row1b --&gt; row2b
-    row2a --&gt; row3a
-    row2b --&gt; row3b
-    row3a --&gt; row4
-    row3b --&gt; row4
-</code></pre>
-<h3 id="superset-setup-steps">Superset Setup Steps</h3>
-<ul>
-<li>Start the platform:</li>
-</ul>
-<pre><code>
-make up
-</code></pre>
-<ul>
-<li>Open Superset:</li>
-</ul>
-<pre><code>
-http://localhost:8088
-</code></pre>
-<ul>
-<li>Create the database connection:</li>
-</ul>
-<pre><code>
-clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
-</code></pre>
-<ul>
-<li>Import the Superset objects as BI-as-code:</li>
-</ul>
-<pre><code>
-make import-superset-assets
-</code></pre>
-<p>This command creates or updates database, dataset, chart, and dashboard objects from <code>configs/superset/deliveryflow_bi.yaml</code>.</p>
-<ul>
-<li>Verify that the datasets were created:</li>
-</ul>
-<pre><code>
-v_delivery_status_overview
-v_delay_by_region
-v_vehicle_utilization
-v_warehouse_daily_kpi
-v_delivery_event_volume
-</code></pre>
-<ul>
-<li>Open the dashboard:</li>
-</ul>
-<pre><code>
-http://localhost:8088/superset/dashboard/deliveryflow-operations/
-</code></pre>
-<h3 id="debugging-and-verification">Debugging and Verification</h3>
-<p>To verify views in ClickHouse:</p>
-<pre><code>
-docker compose exec clickhouse clickhouse-client --query &quot;SHOW TABLES FROM delivery&quot;
-</code></pre>
-<p>To read a sample from a view:</p>
-<pre><code>
-docker compose exec clickhouse clickhouse-client --query &quot;SELECT * FROM delivery.v_delay_by_region LIMIT 10&quot;
-</code></pre>
-<p>Superset logs:</p>
-<pre><code>
-make logs-superset
-</code></pre>
-<p>Superset URL:</p>
-<pre><code>
-make url-superset
-</code></pre>
-<h3 id="important-note">Important Note</h3>
-<p>ClickHouse init SQL runs automatically only when a new volume is created. If an old volume remains and new views are missing, a destructive reset is required:</p>
-<pre><code>
-make purge
-make up
-</code></pre>
-<p><code>make purge</code> also removes local data because it deletes named volumes.</p>
-<h3 id="bi-as-code-model">BI-as-Code Model</h3>
-<p>Superset objects do not need to be created by clicking through the UI. This repository stores them in a YAML file:</p>
-<pre><code>
-configs/superset/deliveryflow_bi.yaml
-</code></pre>
-<p>This YAML file is the source of truth for the following objects:</p>
-<ul>
-<li>database: <code>DeliveryFlow ClickHouse</code></li>
-<li>datasets: 5 ClickHouse report views</li>
-<li>charts: 5 operational/statistical report</li>
-<li>dashboard: <code>DeliveryFlow Operations Dashboard</code></li>
-<li>temporal metadata: <code>business_date</code> and <code>event_hour</code></li>
-<li>chart metric metadata: YAML metric names converted to Superset adhoc metric format</li>
-</ul>
-<p>Import script:</p>
-<pre><code>
-scripts/import_superset_assets.py
-</code></pre>
-<p>Import command:</p>
-<pre><code>
-make import-superset-assets
-</code></pre>
-<p>The script logs in to the Superset REST API, obtains a CSRF token, and creates or updates the YAML objects idempotently. <code>make import-superset-assets</code> rebuilds the <code>superset-importer</code> image first so script and YAML changes are not stale inside the container.</p>
-<p>The importer also normalizes chart parameters:</p>
-<ul>
-<li>Numeric columns such as <code>event_count</code>, <code>completed_deliveries</code>, and <code>total_order_value</code> are written as <code>SUM(...)</code> adhoc metrics in the chart.</li>
-<li>Rate or average columns such as <code>delay_rate</code>, <code>on_time_rate</code>, <code>avg_delay_minutes</code>, and <code>avg_utilization_ratio</code> are written as <code>AVG(...)</code> adhoc metrics.</li>
-<li><code>v_delivery_event_volume.event_hour</code> is stored as the dataset temporal and main datetime column.</li>
-<li>The <code>Hourly Delivery Event Volume</code> chart is imported with <code>x_axis: event_hour</code>, <code>granularity_sqla: event_hour</code>, and <code>time_grain_sqla: PT1H</code>.</li>
-</ul>
-<p>This rule prevents the following Superset rendering errors:</p>
-<pre><code>
-Metric &#39;event_count&#39; does not exist
-Metric &#39;delay_rate&#39; does not exist
-Datetime column not provided as part table configuration and is required by this type of chart
-</code></pre>
-<p>Superset native import/export endpoints also support this strategy:</p>
-<ul>
-<li>dashboard import: <code>POST /api/v1/dashboard/import/</code></li>
-<li>dataset import: <code>POST /api/v1/dataset/import/</code></li>
-<li>assets import: <code>POST /api/v1/assets/import/</code></li>
-</ul>
-<p>In this project, <code>make import-superset-assets</code> performs REST create/update from YAML for a simpler local workflow. In the future, the same YAML specification could be converted to the native Superset ZIP export format and sent to the <code>/api/v1/assets/import/</code> endpoint.</p>
-        <div class="service-card" style="margin-bottom: 1.25rem;">
-          <div class="service-card__header">
-            <h3 class="service-card__title">2. Delay by Region</h3>
-            <span class="badge badge--implemented">Pie / Donut Chart</span>
-          </div>
-          <div class="troubleshoot-grid">
-            <dt>Business Question</dt>
-            <dd>Which delivery regions experience the highest share of delays, and does service level matter?</dd>
-            <dt>ClickHouse View</dt>
-            <dd><code>v_delay_by_region</code></dd>
-            <dt>Metrics</dt>
-            <dd><code>delay_rate</code>, <code>event_count</code></dd>
-            <dt>Dimension</dt>
-            <dd><code>region</code> (north, south, east, west, central) &amp; <code>service_level</code></dd>
-            <dt>Operational Insight</dt>
-            <dd>Helps territory managers identify infrastructure or carrier bottlenecks in high-priority SLA zones.</dd>
-          </div>
-        </div>
-
-        <div class="service-card" style="margin-bottom: 1.25rem;">
-          <div class="service-card__header">
-            <h3 class="service-card__title">3. Vehicle Fleet Utilization</h3>
-            <span class="badge badge--implemented">Bar Chart</span>
-          </div>
-          <div class="troubleshoot-grid">
-            <dt>Business Question</dt>
-            <dd>Are fleet delivery vehicles running at optimal volumetric cargo capacity?</dd>
-            <dt>ClickHouse View</dt>
-            <dd><code>v_vehicle_utilization</code></dd>
-            <dt>Metrics</dt>
-            <dd><code>avg_utilization_ratio</code></dd>
-            <dt>Dimension</dt>
-            <dd><code>vehicle_id</code>, <code>active_status</code></dd>
-            <dt>Operational Insight</dt>
-            <dd>Prevents fuel waste from under-utilized vehicles and highlights overloaded trucks risking breakdowns.</dd>
-          </div>
-        </div>
-
-        <div class="service-card" style="margin-bottom: 1.25rem;">
-          <div class="service-card__header">
-            <h3 class="service-card__title">4. Warehouse Daily KPI Performance</h3>
-            <span class="badge badge--implemented">Timeseries Bar</span>
-          </div>
-          <div class="troubleshoot-grid">
-            <dt>Business Question</dt>
-            <dd>How do regional warehouses compare in terms of completed deliveries and on-time SLA rates?</dd>
-            <dt>ClickHouse View</dt>
-            <dd><code>v_warehouse_daily_kpi</code></dd>
-            <dt>Metrics</dt>
-            <dd><code>completed_deliveries</code>, <code>on_time_rate</code>, <code>delay_rate</code></dd>
-            <dt>Dimension</dt>
-            <dd><code>warehouse_id</code>, temporal <code>business_date</code></dd>
-            <dt>Operational Insight</dt>
-            <dd>Benchmarking facility performance to drive warehouse labor allocation and dispatch scheduling.</dd>
-          </div>
-        </div>
-
-        <div class="service-card" style="margin-bottom: 1.25rem;">
-          <div class="service-card__header">
-            <h3 class="service-card__title">5. Delivery Event Volume Surge</h3>
-            <span class="badge badge--implemented">Timeseries Line</span>
-          </div>
-          <div class="troubleshoot-grid">
-            <dt>Business Question</dt>
-            <dd>What is the hourly event volume pattern across operating regions?</dd>
-            <dt>ClickHouse View</dt>
-            <dd><code>v_delivery_event_volume</code></dd>
-            <dt>Metrics</dt>
-            <dd><code>event_count</code>, <code>delivery_count</code></dd>
-            <dt>Dimension</dt>
-            <dd><code>event_type</code>, temporal <code>event_hour</code></dd>
-            <dt>Operational Insight</dt>
-            <dd>Identifies intraday shipment dispatch peaks to optimize driver shift handoffs.</dd>
-          </div>
-        </div>
-
-        <h2 id="import-flow">Importing BI Assets via API</h2>
-        <p>
-          Executing <code>make import-superset-assets</code> runs <code>scripts/import_superset_assets.py</code> inside the <code>platform-tools</code> container. The script performs:
-        </p>
-        <ol>
-          <li>Authenticates with Superset REST API (<code>/api/v1/security/login</code>) and retrieves CSRF tokens.</li>
-          <li>Registers or updates the <code>DeliveryFlow ClickHouse</code> database connection using SQLalchemy ClickHouse URI.</li>
-          <li>Registers each dataset from the YAML spec, auto-detects columns, and marks <code>temporal_columns</code> correctly.</li>
-          <li>Creates the 5 chart visualizations with normalized adhoc metric structures.</li>
-          <li>Builds the <code>DeliveryFlow Operations Dashboard</code> layout and links all charts.</li>
-        </ol>
-
-        <div class="terminal-block">
-          <div class="terminal-header">
-            <span>PowerShell &mdash; Superset BI Import &amp; Access</span>
-            <button class="terminal-copy-btn" type="button" data-copy="make import-superset-assets">Copy Command</button>
-          </div>
-          <pre class="terminal-body"><code># Run idempotent BI-as-code asset import
-make import-superset-assets</code></pre>
-        </div>
-
-        <div class="callout callout--info">
-          <div class="callout__title">Accessing the Dashboard</div>
-          <p>
-            Open <a href="http://localhost:8088" target="_blank">http://localhost:8088</a> in your browser.<br>
-            Default credentials: <strong>Username:</strong> <code>admin</code> | <strong>Password:</strong> <code>admin</code>.<br>
-            Navigate to <strong>Dashboards &rarr; DeliveryFlow Operations Dashboard</strong>.
+        <!-- Hero Section -->
+        <section class="hero-banner" id="overview">
+          <div class="hero-title">Superset BI Serving &amp; Analytics</div>
+          <p class="hero-lead">
+            DeliveryFlow implements a production-grade <strong>BI-as-Code</strong> architecture using Apache Superset 3.1 connected directly to ClickHouse. All database connections, datasets, charts, and executive dashboards are defined declaratively in version control and provisioned automatically via Python scripts.
           </p>
-        </div>
+
+          <div class="hero-stats-bar">
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Production Dashboards</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">12</div>
+              <div class="hero-stat__label">Pre-Built Charts</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">6</div>
+              <div class="hero-stat__label">ClickHouse Datasets</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">4</div>
+              <div class="hero-stat__label">Native Multi-Filters</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">100%</div>
+              <div class="hero-stat__label">Declarative as Code</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- BI-as-Code Architecture & Workflow -->
+        <section id="bi-as-code">
+          <h2>Declarative BI-as-Code Architecture</h2>
+          <p>
+            Traditional BI deployments suffer from manual click-driven drift, untracked metric edits, and broken staging-to-production promotions. DeliveryFlow completely eliminates manual dashboard creation by treating BI assets as first-class software code:
+          </p>
+
+          <div class="flow-container">
+            <div class="flow-container__title">
+              <span>&#9654;</span> Automated BI Provisioning Pipeline
+            </div>
+
+            <div class="flow-pipeline">
+              <div class="flow-row">
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-superset">Version Control</span>
+                    <span class="status-pill status-pill--success">Git Monorepo</span>
+                  </div>
+                  <div class="flow-step__title">Declarative YAML Spec</div>
+                  <div class="flow-step__desc"><code>configs/superset/deliveryflow_bi.yaml</code> defines all database targets, ClickHouse datasets, metric formulas, and dashboard layouts.</div>
+                  <div class="flow-step__details">Fully peer-reviewed via pull requests.</div>
+                </div>
+
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-kafka">Automation</span>
+                    <span class="status-pill status-pill--success">Python 3.10+</span>
+                  </div>
+                  <div class="flow-step__title">Provisioning Importer Engine</div>
+                  <div class="flow-step__desc"><code>scripts/import_superset_assets.py</code> authenticates against Superset REST APIs (JWT token) and synchronizes assets idempotently.</div>
+                  <div class="flow-step__details">Triggered via <code>make import-superset-assets</code>.</div>
+                </div>
+
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-superset">Visualization</span>
+                    <span class="status-pill status-pill--success">Port 8088</span>
+                  </div>
+                  <div class="flow-step__title">Apache Superset Runtime</div>
+                  <div class="flow-step__desc">Serves interactive dashboards with native filters directly to logistics dispatchers and supply chain executives.</div>
+                  <div class="flow-step__details">Direct SQL pushdown to ClickHouse.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h3>Automated REST API Provisioning Steps</h3>
+          <ol style="padding-left: 1.5rem; line-height: 1.8;">
+            <li><strong>Authentication:</strong> Authenticates against <code>/api/v1/security/login</code> using admin credentials to retrieve a short-lived Bearer JWT token.</li>
+            <li><strong>Database Registration:</strong> Checks <code>/api/v1/database/</code> and ensures the ClickHouse database connection (<code>clickhousedb://default:clickhouse@clickhouse:8123/delivery</code>) is created.</li>
+            <li><strong>Dataset Synchronization:</strong> Calls <code>/api/v1/dataset/</code> to inspect and register the 6 ClickHouse analytical views, defining temporal columns (e.g. <code>business_date</code>, <code>event_hour</code>) and adhoc column types.</li>
+            <li><strong>Chart Generation:</strong> Posts chart slices to <code>/api/v1/chart/</code> with visualization params (bar, line, table, big number), metric aggregations, and layout coordinates.</li>
+            <li><strong>Dashboard Layout &amp; Filter Binding:</strong> Constructs the dashboard shell at <code>/api/v1/dashboard/</code>, calculates responsive grid position coordinates, attaches chart IDs, and binds native multi-select filter components.</li>
+          </ol>
+        </section>
+
+        <!-- Dashboard 1: DeliveryFlow Operations Dashboard -->
+        <section id="dashboard-operations">
+          <h2>Dashboard 1: DeliveryFlow Operations Dashboard</h2>
+          <p>
+            <strong>Dashboard Title:</strong> <code>DeliveryFlow Operations Dashboard</code> &bull; <strong>Slug:</strong> <code>deliveryflow-operations</code><br>
+            Designed for real-time dispatchers, route coordinators, and warehouse fulfillment leads. It reflects active operational events streamed via Apache Flink into ClickHouse.
+          </p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#9635;</div>
+                <div class="card__title">1. Delivery Status Overview</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Distribution Bar Chart (<code>dist_bar</code>)<br>
+                <strong>Dataset:</strong> <code>v_delivery_status_overview</code><br>
+                <strong>Metrics:</strong> <code>event_count</code> &bull; <strong>Group By:</strong> <code>status</code><br><br>
+                Displays the distribution of shipments across lifecycle states (<code>PENDING</code>, <code>IN_TRANSIT</code>, <code>DELIVERED</code>, <code>DELAYED</code>).
+              </div>
+              <div class="card__footer">
+                <span>Real-Time State</span>
+                <span class="badge-clickhouse">Operational Status</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#128202;</div>
+                <div class="card__title">2. Delay by Region &amp; Service Level</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Pivot Table v2 (<code>pivot_table_v2</code>)<br>
+                <strong>Dataset:</strong> <code>v_delay_by_region</code><br>
+                <strong>Metrics:</strong> <code>delay_rate</code>, <code>avg_delay_minutes</code><br>
+                <strong>Rows:</strong> <code>region</code> &bull; <strong>Columns:</strong> <code>service_level</code><br><br>
+                Cross-tabulates delay percentage and average minutes late across regions and SLA tiers (standard, express, same-day).
+              </div>
+              <div class="card__footer">
+                <span>SLA Compliance</span>
+                <span class="badge-clickhouse">Delay Matrix</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#128666;</div>
+                <div class="card__title">3. Vehicle Utilization</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Interactive Data Table (<code>table</code>)<br>
+                <strong>Dataset:</strong> <code>v_vehicle_utilization</code><br>
+                <strong>Metrics:</strong> <code>avg_utilization_ratio</code><br>
+                <strong>Group By:</strong> <code>vehicle_id</code>, <code>active_status</code>, <code>route_id</code><br><br>
+                Tracks fleet transport capacity deployment, alerting dispatchers to underloaded vans or overloaded trucks.
+              </div>
+              <div class="card__footer">
+                <span>Fleet Optimization</span>
+                <span class="badge-clickhouse">Capacity Ratio</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#128200;</div>
+                <div class="card__title">4. Hourly Delivery Event Volume</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Time-Series Line (<code>echarts_timeseries_line</code>)<br>
+                <strong>Dataset:</strong> <code>v_delivery_event_volume</code><br>
+                <strong>Metrics:</strong> <code>event_count</code> &bull; <strong>Time Grain:</strong> 1 Hour (<code>PT1H</code>)<br>
+                <strong>Group By:</strong> <code>event_type</code><br><br>
+                Visualizes throughput volume peaks throughout the workday to identify dispatch rush hours.
+              </div>
+              <div class="card__footer">
+                <span>Throughput Trends</span>
+                <span class="badge-clickhouse">Hourly Volume</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#127970;</div>
+                <div class="card__title">5. Warehouse Daily KPI</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Analytical Table (<code>table</code>)<br>
+                <strong>Dataset:</strong> <code>v_warehouse_daily_kpi</code><br>
+                <strong>Metrics:</strong> <code>completed_deliveries</code>, <code>delayed_deliveries</code>, <code>on_time_rate</code>, <code>total_order_value</code><br>
+                <strong>Group By:</strong> <code>business_date</code>, <code>region</code>, <code>warehouse_id</code><br><br>
+                Daily scorecard evaluating individual warehouse dispatch efficiency and order value fulfillment.
+              </div>
+              <div class="card__footer">
+                <span>Facility Scorecard</span>
+                <span class="badge-clickhouse">Daily Warehouse Rollup</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Dashboard 2: Transportation Cost & Route Performance -->
+        <section id="dashboard-costs">
+          <h2>Dashboard 2: Transportation Cost &amp; Route Performance</h2>
+          <p>
+            <strong>Dashboard Title:</strong> <code>Transportation Cost &amp; Route Performance</code> &bull; <strong>Slug:</strong> <code>transportation-cost-route-performance</code><br>
+            Designed for supply chain directors, finance leads, and fleet managers. It monitors budget adherence, route profitability, fuel volatility, and operational risk.
+          </p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#128176;</div>
+                <div class="card__title">1. Actual Transportation Cost</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Big Number Total (<code>big_number_total</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metric:</strong> <code>SUM(actual_cost)</code><br><br>
+                Executive headline summary of total realized transportation expenditure for the selected period.
+              </div>
+              <div class="card__footer">
+                <span>Executive Metric</span>
+                <span class="badge-spark">Total Spend</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&plusmn;</div>
+                <div class="card__title">2. Transportation Cost Variance</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Big Number Total (<code>big_number_total</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metric:</strong> <code>SUM(cost_variance)</code><br><br>
+                Displays net budgetary deviation: <code>actual_total_cost - planned_cost</code>. Highlights cost overruns in red.
+              </div>
+              <div class="card__footer">
+                <span>Budget Variance</span>
+                <span class="badge-spark">Overrun Tracking</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#128230;</div>
+                <div class="card__title">3. Cost per Delivery Drop</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Big Number Total (<code>big_number_total</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metric:</strong> <code>AVG(cost_per_delivery)</code><br><br>
+                Unit economic KPI showing the average delivery cost per parcel handover to evaluate parcel profitability.
+              </div>
+              <div class="card__footer">
+                <span>Unit Economics</span>
+                <span class="badge-spark">Per-Drop Metric</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#9635;</div>
+                <div class="card__title">4. Cost Breakdown by Category</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Distribution Bar (<code>dist_bar</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metrics:</strong> <code>fuel_cost</code>, <code>driver_cost</code>, <code>toll_cost</code>, <code>maintenance_cost</code>, <code>other_cost</code><br>
+                <strong>Group By:</strong> <code>business_date</code><br><br>
+                Decomposes operating expenses into component buckets over time to track fuel spikes vs. driver overtime.
+              </div>
+              <div class="card__footer">
+                <span>Cost Composition</span>
+                <span class="badge-spark">Expense Breakdown</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#128506;</div>
+                <div class="card__title">5. Route Cost Performance</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Data Table (<code>table</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metrics:</strong> <code>actual_cost</code>, <code>cost_per_delivery</code>, <code>cost_variance</code><br>
+                <strong>Group By:</strong> <code>route_id</code>, <code>region</code><br><br>
+                Ranks all logistics corridors by profitability, identifying high-cost outlier routes requiring renegotiation.
+              </div>
+              <div class="card__footer">
+                <span>Corridor Benchmarking</span>
+                <span class="badge-spark">Route Table</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#127970;</div>
+                <div class="card__title">6. Warehouse Region Cost</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Distribution Bar (<code>dist_bar</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metrics:</strong> <code>actual_cost</code><br>
+                <strong>Group By:</strong> <code>warehouse_id</code>, <code>region</code><br><br>
+                Compares total operating expenditures across fulfillment hubs to identify regional operational disparities.
+              </div>
+              <div class="card__footer">
+                <span>Regional P&amp;L</span>
+                <span class="badge-spark">Warehouse Compare</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#9888;</div>
+                <div class="card__title">7. Route Cost vs Delay Risk</div>
+              </div>
+              <div class="card__body">
+                <strong>Type:</strong> Risk Data Table (<code>table</code>)<br>
+                <strong>Dataset:</strong> <code>v_transportation_cost_performance</code><br>
+                <strong>Metrics:</strong> <code>actual_cost</code>, <code>delay_rate</code>, <code>avg_delay_minutes</code>, <code>cost_delay_risk_score</code><br>
+                <strong>Group By:</strong> <code>route_id</code>, <code>warehouse_id</code>, <code>region</code><br><br>
+                Pinpoints high-risk corridors that suffer from double jeopardy: high financial overruns and severe customer delays.
+              </div>
+              <div class="card__footer">
+                <span>Risk Matrix</span>
+                <span class="badge-clickhouse">Hybrid Risk Index</span>
+              </div>
+            </div>
+          </div>
+
+          <h3>Native Dashboard Filter Bar</h3>
+          <p>
+            Dashboard 2 includes 4 native multi-select filter components that filter all 7 charts in real time:
+          </p>
+          <ul>
+            <li><strong>Business Date:</strong> Temporal filter (<code>filter_time</code>) scoping the accounting window.</li>
+            <li><strong>Warehouse:</strong> Multi-select filter (<code>filter_select</code>) filtering by originating distribution center.</li>
+            <li><strong>Region:</strong> Multi-select filter (<code>filter_select</code>) filtering by geographic operating area.</li>
+            <li><strong>Route:</strong> Multi-select filter (<code>filter_select</code>) isolating specific transit corridors.</li>
+          </ul>
+        </section>
+
+        <!-- Datasets & SQL Metrics Reference -->
+        <section id="datasets-reference">
+          <h2>ClickHouse Serving Datasets &amp; Metrics Reference</h2>
+          <p>
+            All 12 charts read from 6 curated analytical views in ClickHouse. Below is the technical specification of each dataset:
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Dataset Name</th>
+                  <th>Underlying ClickHouse View</th>
+                  <th>Primary Temporal Column</th>
+                  <th>Key Computed Business Metrics</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>Delivery Status Overview</code></td>
+                  <td><code>delivery.v_delivery_status_overview</code></td>
+                  <td>&mdash;</td>
+                  <td><code>event_count</code>, <code>delivery_count</code>, <code>avg_delay_minutes</code></td>
+                </tr>
+                <tr>
+                  <td><code>Delay by Region</code></td>
+                  <td><code>delivery.v_delay_by_region</code></td>
+                  <td>&mdash;</td>
+                  <td><code>delay_rate</code>, <code>avg_delay_minutes</code>, <code>event_count</code></td>
+                </tr>
+                <tr>
+                  <td><code>Vehicle Utilization</code></td>
+                  <td><code>delivery.v_vehicle_utilization</code></td>
+                  <td><code>last_seen_at</code></td>
+                  <td><code>avg_utilization_ratio</code>, <code>active_status</code></td>
+                </tr>
+                <tr>
+                  <td><code>Warehouse Daily KPI</code></td>
+                  <td><code>delivery.v_warehouse_daily_kpi</code></td>
+                  <td><code>business_date</code></td>
+                  <td><code>on_time_rate</code>, <code>delay_rate</code>, <code>total_order_value</code>, <code>total_package_count</code></td>
+                </tr>
+                <tr>
+                  <td><code>Delivery Event Volume</code></td>
+                  <td><code>delivery.v_delivery_event_volume</code></td>
+                  <td><code>event_hour</code></td>
+                  <td><code>event_count</code>, <code>delivery_count</code></td>
+                </tr>
+                <tr>
+                  <td><code>Transportation Cost Performance</code></td>
+                  <td><code>delivery.v_transportation_cost_performance</code></td>
+                  <td><code>business_date</code></td>
+                  <td><code>actual_cost</code>, <code>cost_variance</code>, <code>cost_per_delivery</code>, <code>cost_delay_risk_score</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Operator Runbook -->
+        <section id="operator-runbook">
+          <h2>Operator Runbook &amp; Live UI Access</h2>
+          <p>
+            Manage and provision Superset assets locally using automated Make commands:
+          </p>
+
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <div class="terminal-dots">
+                <span class="terminal-dot terminal-dot--red"></span>
+                <span class="terminal-dot terminal-dot--yellow"></span>
+                <span class="terminal-dot terminal-dot--green"></span>
+              </div>
+              <div class="terminal-title">bash &mdash; Superset BI Provisioning</div>
+              <button class="btn-copy" type="button" data-copy="make import-superset-assets&#10;make pytest-tests">Copy Commands</button>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-cmd"># 1. Provision or refresh both dashboards, 6 datasets, and 12 charts via Superset REST API</div>
+              <div class="terminal-cmd">make import-superset-assets</div>
+              <div class="terminal-cmd"># 2. Run automated test assertions to verify all BI asset specs</div>
+              <div class="terminal-cmd">pytest tests/test_superset_transportation_cost_assets.py</div>
+            </div>
+          </div>
+
+          <div class="alert alert-success">
+            <div>
+              <div class="alert-title">Access Apache Superset Web UI</div>
+              Open your browser and navigate to:
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.25rem;">
+                <li><strong>URL:</strong> <a href="http://localhost:8088" target="_blank">http://localhost:8088</a></li>
+                <li><strong>Username:</strong> <code>admin</code></li>
+                <li><strong>Password:</strong> <code>admin</code></li>
+                <li><strong>Dashboards Menu:</strong> Browse to <em>DeliveryFlow Operations Dashboard</em> or <em>Transportation Cost &amp; Route Performance</em>.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
       </article>
     </main>
-  </body>
 
+    <!-- Right Sticky TOC -->
     <aside class="toc-sidebar">
-      <div class="toc-title">On this page</div>
+      <div class="toc-title">On This Page</div>
       <ul class="toc-nav">
-        <li><a href="#bi-architecture">BI-as-Code Architecture</a></li>
-        <li><a href="#clickhouse-views">ClickHouse Views</a></li>
-        <li><a href="#report-cards">5 Core Report Cards</a></li>
-        <li><a href="#import-flow">API Import Workflow</a></li>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#bi-as-code">BI-as-Code Workflow</a></li>
+        <li><a href="#dashboard-operations">Dashboard 1: Operations</a></li>
+        <li><a href="#dashboard-costs">Dashboard 2: Transport Costs</a></li>
+        <li><a href="#datasets-reference">Datasets &amp; Metrics</a></li>
+        <li><a href="#operator-runbook">Runbook &amp; UI Access</a></li>
       </ul>
     </aside>
   </div>

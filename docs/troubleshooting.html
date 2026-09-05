@@ -9,11 +9,12 @@
   <script src="assets/js/documentation.js" defer></script>
 </head>
 <body>
-  <header class="site-header">
+    <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Troubleshooting</span>
+        <span class="brand__badge">Data Platform</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -23,10 +24,11 @@
   </header>
 
   <div class="app-container">
-    <aside class="sidebar">
+        <aside class="sidebar">
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html">Platform Overview</a></li>
           <li><a href="developer-guide.html">Developer Guide</a></li>
@@ -39,6 +41,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -48,6 +51,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -67,8 +71,8 @@
           Structured operational diagnosis workflows for common failure modes across ingestion, stream processing, analytical serving, lakehouse batch jobs, and BI dashboards.
         </p>
 
-        <div class="callout callout--info">
-          <div class="callout__title">Universal Diagnostic Command</div>
+        <div class="alert alert-info">
+          <div class="alert-title">Universal Diagnostic Command</div>
           <p>
             Whenever you encounter anomalous behavior, run the automated multi-service health checker first. It probes all 8 platform endpoints and prints an immediate status summary:
           </p>
@@ -410,8 +414,8 @@ lsof -i :5433</code></pre>
             <p><strong>Problem:</strong> Underlying database schemas or catalog metadata have drifted after updating repository files, and new migrations conflict with old volume data.</p>
 
             <p><strong>How to Fix (Factory Reset):</strong></p>
-            <div class="callout callout--danger">
-              <div class="callout__title">Destructive Action Warning</div>
+            <div class="alert alert-danger">
+              <div class="alert-title">Destructive Action Warning</div>
               <p>This command deletes all persistent Docker volumes, wiping all data in PostgreSQL, ClickHouse, MinIO, and Nessie.</p>
             </div>
 
@@ -439,8 +443,7 @@ make stream-demo</code></pre>
         </div>
       </article>
 
-      <div class="page-toc">
-        <div class="page-toc__title">On this page</div>
+      
         <ul class="page-toc__list">
           <li><a href="#triage-workflow">Triage Workflow</a></li>
           <li><a href="#issue-kafka-producer">1. Kafka / Producer</a></li>
@@ -453,6 +456,19 @@ make stream-demo</code></pre>
         </ul>
       </div>
     </main>
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-nav">
+        <li><a href="#triage-workflow">Triage Workflow</a></li>
+        <li><a href="#issue-kafka-producer">1. Kafka / Producer</a></li>
+        <li><a href="#issue-flink-job">2. Flink Streaming</a></li>
+        <li><a href="#issue-clickhouse-empty">3. ClickHouse Serving</a></li>
+        <li><a href="#issue-spark-batch">4. Spark Batch / KPI</a></li>
+        <li><a href="#issue-superset-charts">5. Superset BI</a></li>
+        <li><a href="#issue-port-conflict">6. Port Conflict</a></li>
+        <li><a href="#issue-stale-volumes">7. Volume Reset</a></li>
+      </ul>
+    </aside>
   </div>
 </body>
 </html>

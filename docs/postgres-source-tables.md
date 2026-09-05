@@ -59,10 +59,13 @@ make produce
 ```mermaid
 erDiagram
     WAREHOUSES ||--o{ SHIPMENTS : owns
+    WAREHOUSES ||--o{ TRANSPORTATION_COSTS : records
     CUSTOMER_ORDERS ||--o{ SHIPMENTS : creates
     SHIPMENTS ||--|| DELIVERY_PLANS : planned_as
     VEHICLES ||--o{ DELIVERY_PLANS : assigned
+    VEHICLES ||--o{ TRANSPORTATION_COSTS : incurs
     DRIVERS ||--o{ DELIVERY_PLANS : assigned
+    DELIVERY_PLANS ||--o{ TRANSPORTATION_COSTS : incurs
 
     WAREHOUSES {
         text warehouse_id PK
@@ -120,6 +123,31 @@ erDiagram
         timestamptz planned_departure_at
         timestamptz planned_arrival_at
         numeric planned_distance_km
+    }
+
+    TRANSPORTATION_COSTS {
+        text cost_id PK
+        date business_date
+        text delivery_id FK
+        text route_id
+        text vehicle_id FK
+        text warehouse_id FK
+        text region
+        numeric planned_distance_km
+        numeric actual_distance_km
+        numeric planned_cost
+        numeric fuel_cost
+        numeric driver_cost
+        numeric toll_cost
+        numeric maintenance_cost
+        numeric other_cost
+        numeric actual_total_cost
+        numeric fuel_liters
+        integer delivery_count
+        numeric vehicle_capacity
+        numeric used_capacity
+        integer planned_duration_minutes
+        integer actual_duration_minutes
     }
 ```
 
@@ -228,6 +256,36 @@ Constraint:
 - `planned_arrival_at > planned_departure_at`
 - `planned_distance_km >= 0`
 
+## Table 7: `transportation_costs`
+
+Stores route-level and trip-level operational cost facts for batch analytics (Dashboard 6).
+
+Main fields:
+
+- `cost_id`: primary key for the cost fact.
+- `business_date`: business operating date for accounting partitioning.
+- `delivery_id`: `delivery_plans(delivery_id)` foreign key linking cost facts to operational trips.
+- `route_id`: route identifier.
+- `vehicle_id`: `vehicles(vehicle_id)` foreign key.
+- `warehouse_id`: `warehouses(warehouse_id)` foreign key.
+- `region`: delivery geographic region.
+- `planned_distance_km`, `actual_distance_km`: estimated vs actual logged GPS distance.
+- `planned_cost`: baseline budgeted trip cost.
+- `fuel_cost`, `driver_cost`, `toll_cost`, `maintenance_cost`, `other_cost`: discrete cost components.
+- `actual_total_cost`: total incurred cost.
+- `fuel_liters`: diesel/fuel volume consumed.
+- `delivery_count`: total completed customer drop-offs on route.
+- `vehicle_capacity`, `used_capacity`: rated payload capacity vs actual load carried.
+- `planned_duration_minutes`, `actual_duration_minutes`: estimated vs actual trip duration.
+
+Constraints & Integrity Rules:
+
+- `cost_id` is the primary key.
+- All distance, cost, volume, count, capacity, and duration values must be non-negative (`>= 0`).
+- `vehicle_capacity > 0`.
+- `used_capacity <= vehicle_capacity` (capacity overload prevention).
+- `actual_total_cost = fuel_cost + driver_cost + toll_cost + maintenance_cost + other_cost` (exact financial reconciliation check).
+
 ## Batch Source Seed Flow
 
 ```mermaid
@@ -245,6 +303,7 @@ sequenceDiagram
     G->>PG: customer_orders insert
     G->>PG: shipments insert
     G->>PG: delivery_plans insert
+    G->>PG: transportation_costs insert
 ```
 
 The generator uses `ON CONFLICT DO NOTHING`. This means reseeding with the same IDs does not duplicate existing rows.

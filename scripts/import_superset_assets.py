@@ -334,7 +334,6 @@ def build_native_filter_configuration(filter_specs: list[dict[str, Any]]) -> lis
 def dashboard_id(client: SupersetClient, chart_ids: dict[str, int], spec: dict[str, Any]) -> int:
     """Create or update the dashboard shell and its layout JSON."""
     existing = find_by_name(client.get_all("/api/v1/dashboard/"), ("dashboard_title",), spec["title"])
-    metadata = {
     metadata: dict[str, Any] = {
         "timed_refresh_immune_slices": [],
         "expanded_slices": {},

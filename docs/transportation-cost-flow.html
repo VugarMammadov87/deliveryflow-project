@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transportation Cost Batch Flow | DeliveryFlow Docs</title>
+  <meta name="description" content="End-to-end 3-tier batch Lakehouse data flow for transportation cost and route performance analytics (Dashboard 6).">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Batch Lakehouse</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html" class="active">Transportation Cost Flow</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <!-- Hero Section -->
+        <section class="hero-banner" id="overview">
+          <div class="hero-title">Transportation Cost Batch Flow</div>
+          <p class="hero-lead">
+            Comprehensive architectural guide for <strong>Dashboard 6: Transportation Cost &amp; Route Performance</strong>. This pipeline implements a production-grade 3-tier Lakehouse ETL from synthetic PostgreSQL source records to Iceberg Bronze, Silver, and Gold layers, ClickHouse serving, and Superset BI-as-Code.
+          </p>
+
+          <div class="hero-stats-bar">
+            <div class="hero-stat">
+              <div class="hero-stat__number">1</div>
+              <div class="hero-stat__label">PostgreSQL Source Table</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">3</div>
+              <div class="hero-stat__label">Iceberg Medallion Tiers</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">1</div>
+              <div class="hero-stat__label">Hybrid Serving View</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">7</div>
+              <div class="hero-stat__label">Production BI Charts</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">4</div>
+              <div class="hero-stat__label">Native BI Filters</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Pipeline Lineage Diagram -->
+        <section id="end-to-end-flow">
+          <h2>End-to-End Batch Lineage (Source to Dashboard)</h2>
+          <p>
+            The pipeline executes daily batch processing across 6 distinct architectural phases:
+          </p>
+
+          <div class="flow-container">
+            <div class="flow-container__title">
+              <span>&#9654;</span> 6-Stage Transportation Cost Processing Lineage
+            </div>
+
+            <div class="flow-pipeline">
+              <div class="flow-row">
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-postgres">1. Source Facts</span>
+                    <span class="status-pill status-pill--success">Port 5433</span>
+                  </div>
+                  <div class="flow-step__title">PostgreSQL Database</div>
+                  <div class="flow-step__desc"><code>public.transportation_costs</code> captures operational route logs (planned vs actual distance, fuel liters, cost breakdown).</div>
+                  <div class="flow-step__details">Referential keys link to <code>delivery_plans</code> and <code>vehicles</code>.</div>
+                </div>
+
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-airflow">2. Orchestration</span>
+                    <span class="status-pill status-pill--success">Port 8080</span>
+                  </div>
+                  <div class="flow-step__title">Apache Airflow</div>
+                  <div class="flow-step__desc">DAG <code>delivery_transportation_cost_daily_batch</code> coordinates source check &rarr; Spark execution &rarr; output validation.</div>
+                  <div class="flow-step__details">Factory: <code>dags/batch_spark_dag_factory.py</code>.</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow-down">&darr; Distributed Spark Compute &darr;</div>
+
+              <div class="flow-row">
+                <div class="flow-step" style="border-top: 3px solid var(--c-iceberg);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-iceberg">3. Medallion Lakehouse</span>
+                    <span class="status-pill status-pill--success">MinIO + Nessie</span>
+                  </div>
+                  <div class="flow-step__title">Apache Iceberg Tables</div>
+                  <div class="flow-step__desc">
+                    <strong>Bronze:</strong> <code>nessie.bronze.transportation_costs</code><br>
+                    <strong>Silver:</strong> <code>nessie.silver.transportation_costs_enriched</code><br>
+                    <strong>Gold:</strong> <code>nessie.gold.daily_transportation_cost_kpi</code>
+                  </div>
+                  <div class="flow-step__details">Snapshot isolation on MinIO with Nessie REST catalog.</div>
+                </div>
+
+                <div class="flow-step" style="border-top: 3px solid var(--c-clickhouse);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-clickhouse">4. OLAP Serving</span>
+                    <span class="status-pill status-pill--success">Port 8123</span>
+                  </div>
+                  <div class="flow-step__title">ClickHouse Serving Layer</div>
+                  <div class="flow-step__desc">Table: <code>delivery.daily_transportation_cost_kpi</code><br>Hybrid View: <code>delivery.v_transportation_cost_performance</code></div>
+                  <div class="flow-step__details">Left joins financial aggregates with streaming delivery delay signals.</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow-down">&darr; Declarative BI Serving &darr;</div>
+
+              <div class="flow-row">
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-superset">5. BI-as-Code</span>
+                    <span class="status-pill status-pill--success">Port 8088</span>
+                  </div>
+                  <div class="flow-step__title">Transportation Cost Dashboard</div>
+                  <div class="flow-step__desc">Executive dashboard providing 7 production charts and 4 native cross-filters.</div>
+                  <div class="flow-step__details">Slug: <code>transportation-cost-performance</code>.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Financial Calculations & Unit Economics Formulas -->
+        <section id="financial-formulas">
+          <h2>Financial Calculations &amp; Unit Economics Formulas</h2>
+          <p>
+            During the Silver and Gold transformation stages, Apache Spark computes critical financial efficiency and risk indicators:
+          </p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&plusmn;</div>
+                <div class="card__title">Cost Variance</div>
+              </div>
+              <div class="card__body">
+                <code>cost_variance = actual_total_cost - planned_cost</code><br><br>
+                <code>cost_variance_pct = (actual_total_cost - planned_cost) / planned_cost</code><br><br>
+                Measures budgetary discipline per route and warehouse corridor.
+              </div>
+              <div class="card__footer">
+                <span>Budgetary Tracking</span>
+                <span class="badge-spark">Row-level &amp; Aggregated</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&divide;</div>
+                <div class="card__title">Unit Transit Costs</div>
+              </div>
+              <div class="card__body">
+                <code>cost_per_km = actual_total_cost / actual_distance_km</code><br><br>
+                <code>cost_per_delivery = actual_total_cost / delivery_count</code><br><br>
+                Evaluates transport efficiency independent of total route scale.
+              </div>
+              <div class="card__footer">
+                <span>Unit Economics</span>
+                <span class="badge-spark">Efficiency Metric</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#9981;</div>
+                <div class="card__title">Fuel Cost Share</div>
+              </div>
+              <div class="card__body">
+                <code>fuel_cost_pct = fuel_cost / actual_total_cost</code><br><br>
+                Tracks volatility exposure to diesel/gasoline price swings across vehicle types and driving behaviors.
+              </div>
+              <div class="card__footer">
+                <span>Expense Composition</span>
+                <span class="badge-spark">Fuel Share</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#9888;</div>
+                <div class="card__title">Cost &amp; Delay Risk Score</div>
+              </div>
+              <div class="card__body">
+                <code>cost_delay_risk_score = cost_variance_pct + delay_rate</code><br><br>
+                Combines batch cost overruns with operational delivery delay rates to identify high-risk logistics corridors.
+              </div>
+              <div class="card__footer">
+                <span>Operational Risk Index</span>
+                <span class="badge-clickhouse">Hybrid View Metric</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ClickHouse Serving View -->
+        <section id="clickhouse-view">
+          <h2>ClickHouse Hybrid Analytical View</h2>
+          <p>
+            To keep Superset connected to a single high-performance engine, ClickHouse joins batch financial aggregates from the Lakehouse with live delay statistics from the streaming event ledger:
+          </p>
+
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-header__lang">ClickHouse SQL &mdash; delivery.v_transportation_cost_performance</span>
+              <button class="btn-copy" type="button" data-copy="CREATE VIEW IF NOT EXISTS delivery.v_transportation_cost_performance AS
+SELECT
+    k.business_date,
+    k.warehouse_id,
+    k.region,
+    k.route_id,
+    k.cost_record_count,
+    k.total_deliveries,
+    k.planned_cost,
+    k.actual_cost,
+    k.cost_variance,
+    k.cost_variance_pct,
+    k.fuel_cost,
+    k.driver_cost,
+    k.toll_cost,
+    k.maintenance_cost,
+    k.other_cost,
+    k.total_distance_km,
+    k.cost_per_km,
+    k.cost_per_delivery,
+    k.fuel_cost_pct,
+    k.avg_vehicle_utilization_pct,
+    k.avg_delivery_duration_minutes,
+    k.avg_duration_variance_minutes,
+    coalesce(d.operational_delivery_count, 0) AS operational_delivery_count,
+    coalesce(d.delayed_delivery_count, 0) AS delayed_delivery_count,
+    coalesce(d.avg_delay_minutes, 0) AS avg_delay_minutes,
+    coalesce(d.delay_rate, 0) AS delay_rate,
+    k.cost_variance_pct + coalesce(d.delay_rate, 0) AS cost_delay_risk_score,
+    k.published_at,
+    k.version
+FROM delivery.daily_transportation_cost_kpi FINAL AS k
+LEFT JOIN
+(
+    SELECT
+        toDate(event_timestamp) AS business_date,
+        warehouse_id,
+        region,
+        route_id,
+        uniqExact(delivery_id) AS operational_delivery_count,
+        sum(delay_minutes > 0) AS delayed_delivery_count,
+        avg(delay_minutes) AS avg_delay_minutes,
+        sum(delay_minutes > 0) / greatest(count(), 1) AS delay_rate
+    FROM delivery.delivery_events
+    GROUP BY business_date, warehouse_id, region, route_id
+) AS d
+ON k.business_date = d.business_date
+    AND k.warehouse_id = d.warehouse_id
+    AND k.region = d.region
+    AND k.route_id = d.route_id;">Copy View SQL</button>
+            </div>
+            <div class="code-body">
+              <pre><code>CREATE VIEW IF NOT EXISTS delivery.v_transportation_cost_performance AS
+SELECT
+    k.business_date,
+    k.warehouse_id,
+    k.region,
+    k.route_id,
+    k.cost_record_count,
+    k.total_deliveries,
+    k.planned_cost,
+    k.actual_cost,
+    k.cost_variance,
+    k.cost_variance_pct,
+    k.fuel_cost,
+    k.driver_cost,
+    k.toll_cost,
+    k.maintenance_cost,
+    k.other_cost,
+    k.total_distance_km,
+    k.cost_per_km,
+    k.cost_per_delivery,
+    k.fuel_cost_pct,
+    k.avg_vehicle_utilization_pct,
+    k.avg_delivery_duration_minutes,
+    k.avg_duration_variance_minutes,
+    coalesce(d.operational_delivery_count, 0) AS operational_delivery_count,
+    coalesce(d.delayed_delivery_count, 0) AS delayed_delivery_count,
+    coalesce(d.avg_delay_minutes, 0) AS avg_delay_minutes,
+    coalesce(d.delay_rate, 0) AS delay_rate,
+    k.cost_variance_pct + coalesce(d.delay_rate, 0) AS cost_delay_risk_score,
+    k.published_at,
+    k.version
+FROM delivery.daily_transportation_cost_kpi FINAL AS k
+LEFT JOIN
+(
+    SELECT
+        toDate(event_timestamp) AS business_date,
+        warehouse_id,
+        region,
+        route_id,
+        uniqExact(delivery_id) AS operational_delivery_count,
+        sum(delay_minutes > 0) AS delayed_delivery_count,
+        avg(delay_minutes) AS avg_delay_minutes,
+        sum(delay_minutes > 0) / greatest(count(), 1) AS delay_rate
+    FROM delivery.delivery_events
+    GROUP BY business_date, warehouse_id, region, route_id
+) AS d
+ON k.business_date = d.business_date
+    AND k.warehouse_id = d.warehouse_id
+    AND k.region = d.region
+    AND k.route_id = d.route_id;</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- Superset Dashboard 6 Specifications -->
+        <section id="superset-dashboard">
+          <h2>Dashboard 6: Transportation Cost &amp; Route Performance</h2>
+          <p>
+            The analytical output is visualized in Apache Superset via 7 production charts and 4 native multi-select filter bars:
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Chart Title</th>
+                  <th>Visualization Type</th>
+                  <th>Key Metrics / Dimensions</th>
+                  <th>Analytical Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Total Transportation Cost</strong></td>
+                  <td>Big Number</td>
+                  <td><code>SUM(actual_cost)</code>, <code>cost_variance_pct</code></td>
+                  <td>Headline metric of actual expenditure vs. planned budget.</td>
+                </tr>
+                <tr>
+                  <td><strong>Cost Variance by Route</strong></td>
+                  <td>Bar Chart</td>
+                  <td><code>route_id</code>, <code>cost_variance</code></td>
+                  <td>Ranks corridor cost deviations from budget in absolute dollars.</td>
+                </tr>
+                <tr>
+                  <td><strong>Cost Breakdown by Category</strong></td>
+                  <td>Pie / Donut Chart</td>
+                  <td>Fuel, Driver, Tolls, Maintenance, Other</td>
+                  <td>Displays expense share distribution across cost components.</td>
+                </tr>
+                <tr>
+                  <td><strong>Unit Cost Trends</strong></td>
+                  <td>Time-Series Line Chart</td>
+                  <td><code>business_date</code>, <code>cost_per_km</code>, <code>cost_per_delivery</code></td>
+                  <td>Tracks long-term unit cost efficiency trajectory.</td>
+                </tr>
+                <tr>
+                  <td><strong>Warehouse Cost Comparison</strong></td>
+                  <td>Stacked Bar Chart</td>
+                  <td><code>warehouse_id</code>, Cost Components</td>
+                  <td>Compares operating expenditure across distribution centers.</td>
+                </tr>
+                <tr>
+                  <td><strong>Cost vs. Delay Risk Scatter</strong></td>
+                  <td>Scatter Plot</td>
+                  <td><code>cost_variance_pct</code> (X) vs <code>delay_rate</code> (Y)</td>
+                  <td>Pinpoints high-risk routes suffering both overruns and delays.</td>
+                </tr>
+                <tr>
+                  <td><strong>Route Performance Summary</strong></td>
+                  <td>Data Table</td>
+                  <td>Route, Planned, Actual, Variance %, $/km, Drops, Duration</td>
+                  <td>Full drill-down matrix for logistics managers.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Native Dashboard Filters</h3>
+          <ul>
+            <li><strong>Date Range:</strong> Filters accounting <code>business_date</code> (Default: Last 30 days).</li>
+            <li><strong>Region:</strong> Multi-select geographic region (e.g. <code>Absheron</code>, <code>Baku-North</code>).</li>
+            <li><strong>Warehouse:</strong> Multi-select originating fulfillment center (e.g. <code>WH-001</code>).</li>
+            <li><strong>Route:</strong> Multi-select logistics corridor (e.g. <code>RT-BAKU-SUMQAYIT</code>).</li>
+          </ul>
+        </section>
+
+        <!-- Operator Runbook -->
+        <section id="operator-runbook">
+          <h2>Operator Execution Runbook</h2>
+          <p>Execute the complete transportation cost batch flow locally:</p>
+
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <div class="terminal-dots">
+                <span class="terminal-dot terminal-dot--red"></span>
+                <span class="terminal-dot terminal-dot--yellow"></span>
+                <span class="terminal-dot terminal-dot--green"></span>
+              </div>
+              <div class="terminal-title">bash &mdash; Transportation Cost Batch Runbook</div>
+              <button class="btn-copy" type="button" data-copy="make seed-batch-source&#10;make run-batch DATASET=transportation-costs&#10;make import-superset-assets&#10;make test-batch">Copy Commands</button>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-cmd"># 1. Seed synthetic route cost records into PostgreSQL (public.transportation_costs)</div>
+              <div class="terminal-cmd">make seed-batch-source</div>
+              <div class="terminal-cmd"># 2. Execute Spark ETL across Bronze, Silver, Gold and publish to ClickHouse</div>
+              <div class="terminal-cmd">make run-batch DATASET=transportation-costs</div>
+              <div class="terminal-cmd"># 3. Import or refresh Superset dashboard assets and native filters</div>
+              <div class="terminal-cmd">make import-superset-assets</div>
+              <div class="terminal-cmd"># 4. Verify batch transformations and schema assertions with pytest</div>
+              <div class="terminal-cmd">make test-batch</div>
+            </div>
+          </div>
+        </section>
+      </article>
+    </main>
+
+    <!-- Right Sticky TOC -->
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-nav">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#end-to-end-flow">Lineage Flow</a></li>
+        <li><a href="#financial-formulas">Financial Formulas</a></li>
+        <li><a href="#clickhouse-view">Serving View</a></li>
+        <li><a href="#superset-dashboard">Dashboard 6</a></li>
+        <li><a href="#operator-runbook">Runbook</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>

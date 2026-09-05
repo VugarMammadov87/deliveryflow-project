@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Streaming Architecture | DeliveryFlow Docs</title>
-  <meta name="description" content="Technical guide for Kafka, Flink DataStream, Flink SQL, and ClickHouse serving in DeliveryFlow.">
+  <title>Streaming Architecture &amp; Flink Engines | DeliveryFlow Docs</title>
+  <meta name="description" content="Deep technical guide for Apache Kafka KRaft, Apache Flink DataStream & Table API/SQL, and real-time ClickHouse serving in DeliveryFlow.">
   <link rel="stylesheet" href="assets/css/documentation.css">
   <script src="assets/js/documentation.js" defer></script>
 </head>
@@ -12,8 +12,9 @@
   <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Streaming</span>
+        <span class="brand__badge">Data Platform</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -27,6 +28,7 @@
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html">Platform Overview</a></li>
           <li><a href="developer-guide.html">Developer Guide</a></li>
@@ -39,6 +41,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html" class="active">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -48,6 +51,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -62,139 +66,357 @@
 
     <main class="main-content">
       <article class="doc-article">
-        <h1>Streaming Architecture</h1>
-        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
-          DeliveryFlow implements two independent production-grade stream processing applications with Apache Kafka, Apache Flink, and ClickHouse: a DataStream API application for delivery operations and a Table API/SQL application for fleet vehicle telemetry.
-        </p>
-
-        <h2 id="streaming-overview">Streaming Architecture Overview</h2>
-        <p>
-          The streaming layer ingests asynchronous domain events, validates them against strict schema contracts, tracks entity state, and publishes operational rows into ClickHouse serving tables in real time.
-        </p>
-
-        <div class="diagram-container">
-          <div class="flow-grid">
-            <div class="flow-step">
-              <div class="flow-step__title">Synthetic Producer</div>
-              <div class="flow-step__tech">Python 3.10+</div>
-              <div class="flow-step__desc">Generates versioned JSON events with partition keys</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">Apache Kafka</div>
-              <div class="flow-step__tech">KRaft Broker</div>
-              <div class="flow-step__desc">Partitioned event log with 3 partitions per topic</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">Apache Flink</div>
-              <div class="flow-step__tech">DataStream &amp; SQL</div>
-              <div class="flow-step__desc">Event-time watermarks, validation, tumbling windows</div>
-            </div>
-            <div class="flow-arrow">&rarr;</div>
-            <div class="flow-step">
-              <div class="flow-step__title">ClickHouse</div>
-              <div class="flow-step__tech">Serving Engines</div>
-              <div class="flow-step__desc">MergeTree history &amp; ReplacingMergeTree state</div>
-            </div>
-          </div>
-          <div class="diagram-caption">Figure 1: Core streaming architecture pipeline.</div>
-        </div>
-
-        <h2 id="event-contracts">Event Contracts &amp; Topics</h2>
-        <p>
-          Each application has an isolated Kafka topic and a versioned JSON schema contract located in <code>src/contracts/&lt;domain&gt;/</code>:
-        </p>
-
-        <div class="table-wrapper">
-          <table>
-            <thead>
-              <tr>
-                <th>Application</th>
-                <th>Kafka Topic</th>
-                <th>Message Key</th>
-                <th>Contract Schema</th>
-                <th>Key Attributes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>Delivery</strong> (Default)</td>
-                <td><code>delivery-events</code></td>
-                <td><code>delivery_id</code></td>
-                <td><code>src/contracts/delivery/delivery_event_v1.schema.json</code></td>
-                <td><code>schema_version</code>, <code>event_type</code>, <code>delivery_id</code>, <code>status</code>, <code>delay_minutes</code>, <code>capacity_used</code></td>
-              </tr>
-              <tr>
-                <td><strong>Fleet</strong> (<code>APP=fleet</code>)</td>
-                <td><code>vehicle-telemetry-events</code></td>
-                <td><code>vehicle_id</code></td>
-                <td><code>src/contracts/fleet/vehicle_telemetry_v1.schema.json</code></td>
-                <td><code>vehicle_id</code>, <code>speed_kmh</code>, <code>fuel_level_pct</code>, <code>engine_temperature_c</code>, <code>engine_status</code></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="callout callout--tip">
-          <div class="callout__title">Why Key Messages?</div>
-          <p>
-            Publishing messages with a business key (e.g. <code>delivery_id</code> or <code>vehicle_id</code>) guarantees that all sequential events for that specific entity are assigned to the same Kafka partition, preserving chronological ordering without requiring a single global partition.
+        <!-- Hero Section -->
+        <section class="hero-banner" id="overview">
+          <div class="hero-title">Streaming Architecture &amp; Real-Time Processing</div>
+          <p class="hero-lead">
+            DeliveryFlow implements two independent, production-grade stream processing applications using Apache Kafka (KRaft mode), Apache Flink, and ClickHouse. Discover how Java DataStream API and Flink SQL engines process sub-second operational events and IoT fleet telemetry.
           </p>
-        </div>
 
-        <h2 id="app-1-delivery">Application 1: Delivery Operations (DataStream API)</h2>
-        <p>
-          <strong>Implementation:</strong> <code>services/flink/src/main/java/local/deliveryflow/DeliveryStreamingJob.java</code>
-        </p>
-        <p>
-          The delivery streaming job handles parcel order progression through various milestone events (<code>ORDER_LOADED</code>, <code>VEHICLE_DEPARTED</code>, <code>IN_TRANSIT</code>, <code>DELIVERY_DELAYED</code>, <code>DELIVERED</code>).
-        </p>
-        
-        <h3>Key Technical Decisions</h3>
-        <ul>
-          <li><strong>Checkpointing:</strong> Enabled at 10-second intervals with <code>CheckpointingMode.AT_LEAST_ONCE</code> and a 60-second timeout.</li>
-          <li><strong>Watermarking:</strong> Uses <code>WatermarkStrategy.forBoundedOutOfOrderness(Duration.ofSeconds(30))</code> with 1-minute idleness detection to handle network jitter.</li>
-          <li><strong>Validation:</strong> Enforces <code>schema_version == 1</code>, rejects malformed payloads, and keys by <code>delivery_id</code>.</li>
-          <li><strong>HTTP Sink:</strong> <code>ClickHouseDeliverySink.java</code> writes to ClickHouse using HTTP <code>JSONEachRow</code> format. This keeps the local deployment free from heavy binary driver overhead.</li>
-        </ul>
-
-        <h3>Target Serving Tables in ClickHouse <code>delivery.*</code></h3>
-        <ul>
-          <li><code>delivery.delivery_events</code>: Complete immutable event ledger (Engine: <code>MergeTree</code>, 30-day TTL).</li>
-          <li><code>delivery.delivery_current_state</code>: Latest state per delivery, deduplicated by timestamp version (Engine: <code>ReplacingMergeTree(version)</code>).</li>
-          <li><code>delivery.vehicle_current_state</code>: Latest location and utilization per vehicle (Engine: <code>ReplacingMergeTree(version)</code>).</li>
-        </ul>
-
-        <h2 id="app-2-fleet">Application 2: Fleet Telemetry (Flink SQL)</h2>
-        <p>
-          <strong>Implementation:</strong> <code>services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java</code><br>
-          <strong>SQL Queries:</strong> <code>services/flink/src/main/resources/sql/fleet/vehicle_telemetry.sql</code>
-        </p>
-        <p>
-          The fleet telemetry application runs alongside the delivery pipeline as an independent streaming application. It processes continuous GPS and diagnostic streams using Flink SQL and the Table API.
-        </p>
-
-        <h3>Core SQL Pipeline Queries</h3>
-        <p>The Flink SQL pipeline executes four parallel continuous queries from a single Kafka source table:</p>
-        <ol>
-          <li><strong>Raw Telemetry Sink:</strong> Streams clean, validated telemetry records directly into <code>fleet.vehicle_telemetry_events</code>.</li>
-          <li><strong>Current State Tracking:</strong> Emits point-in-time vehicle status to <code>fleet.vehicle_current_state</code>.</li>
-          <li><strong>Health Alerting Filter:</strong> Evaluates threshold breaches in real time and routes alerts to <code>fleet.vehicle_health_alerts</code>:
-            <ul>
-              <li><strong>Overspeed Alert:</strong> <code>speed_kmh &gt;= 100.0</code> (Severity: <code>warning</code>)</li>
-              <li><strong>Low Fuel Alert:</strong> <code>fuel_level_pct &lt;= 15.0%</code> (Severity: <code>warning</code>)</li>
-              <li><strong>High Engine Temp:</strong> <code>engine_temperature_c &gt;= 105.0 &deg;C</code> (Severity: <code>critical</code>)</li>
-            </ul>
-          </li>
-          <li><strong>5-Minute Tumbling Window Aggregation:</strong> Computes rolling metrics using Flink's window table-valued functions:</li>
-        </ol>
-
-        <div class="terminal-block">
-          <div class="terminal-header">
-            <span>SQL &mdash; Fleet 5-Minute Tumbling Window (vehicle_telemetry.sql)</span>
+          <div class="hero-stats-bar">
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Flink Streaming Apps</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Kafka Partitioned Topics</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">10s</div>
+              <div class="hero-stat__label">Checkpoint Interval</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">30s</div>
+              <div class="hero-stat__label">Watermark Out-of-Order Tol.</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">5m</div>
+              <div class="hero-stat__label">Tumbling SQL Windows</div>
+            </div>
           </div>
-          <pre class="terminal-body"><code>SELECT
+        </section>
+
+        <!-- Streaming Architecture Diagram -->
+        <section id="streaming-topology">
+          <h2>Stream Processing Topology</h2>
+          <p>
+            The streaming layer decouples producers from consumers using Apache Kafka and branches into two specialized processing pipelines:
+          </p>
+
+          <div class="flow-container">
+            <div class="flow-container__title">
+              <span>&#9654;</span> End-to-End Real-Time Event Pipeline
+            </div>
+
+            <div class="flow-pipeline">
+              <div class="flow-row">
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-kafka">Producers</span>
+                    <span class="status-pill status-pill--success">Python 3.10+</span>
+                  </div>
+                  <div class="flow-step__title">Synthetic Event Generators</div>
+                  <div class="flow-step__desc">Generates versioned JSON contracts with deterministic partition keys.</div>
+                  <div class="flow-step__details">Keys: <code>delivery_id</code> for orders; <code>vehicle_id</code> for fleet IoT.</div>
+                </div>
+
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-kafka">Log Storage</span>
+                    <span class="status-pill status-pill--success">KRaft (Port 9092)</span>
+                  </div>
+                  <div class="flow-step__title">Apache Kafka Cluster</div>
+                  <div class="flow-step__desc">Partitioned, immutable distributed commit log without ZooKeeper.</div>
+                  <div class="flow-step__details">Topics: <code>delivery-events</code> &amp; <code>vehicle-telemetry-events</code>.</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow-down">&darr; Parallel Stream Consumers &darr;</div>
+
+              <div class="flow-row">
+                <div class="flow-step" style="border-top: 3px solid var(--c-flink);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-flink">Java DataStream API</span>
+                    <span class="status-pill status-pill--success">JobManager 8081</span>
+                  </div>
+                  <div class="flow-step__title"><code>DeliveryStreamingJob</code></div>
+                  <div class="flow-step__desc">Parses delivery lifecycle milestones, filters invalid schema versions, and keys state by delivery ID.</div>
+                  <div class="flow-step__details">Writes 3 parallel JSONEachRow HTTP projections into ClickHouse.</div>
+                </div>
+
+                <div class="flow-step" style="border-top: 3px solid var(--c-flink);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-flink">Flink SQL / Table API</span>
+                    <span class="status-pill status-pill--success">JobManager 8081</span>
+                  </div>
+                  <div class="flow-step__title"><code>VehicleTelemetrySqlJob</code></div>
+                  <div class="flow-step__desc">Executes 4 continuous SQL queries: raw events, current location, threshold health alerts, and 5-min tumbling windows.</div>
+                  <div class="flow-step__details">Watermark: <code>event_timestamp - INTERVAL '10' SECOND</code>.</div>
+                </div>
+              </div>
+
+              <div class="flow-arrow-down">&darr; Sub-Second Analytical Serving &darr;</div>
+
+              <div class="flow-row">
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-clickhouse">ClickHouse OLAP</span>
+                    <span class="status-pill status-pill--success">Port 8123 (HTTP)</span>
+                  </div>
+                  <div class="flow-step__title">Delivery Database (<code>delivery.*</code>)</div>
+                  <div class="flow-step__desc"><code>delivery_events</code> (MergeTree, 30d TTL) + <code>delivery_current_state</code> (ReplacingMergeTree).</div>
+                  <div class="flow-step__details">Feeds DeliveryFlow Operations Dashboard in Apache Superset.</div>
+                </div>
+
+                <div class="flow-step">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-clickhouse">ClickHouse OLAP</span>
+                    <span class="status-pill status-pill--success">Port 8123 (HTTP)</span>
+                  </div>
+                  <div class="flow-step__title">Fleet Database (<code>fleet.*</code>)</div>
+                  <div class="flow-step__desc"><code>vehicle_telemetry_events</code>, <code>vehicle_current_state</code>, <code>vehicle_health_alerts</code>, <code>vehicle_metrics_5m</code>.</div>
+                  <div class="flow-step__details">Provides instantaneous driver safety &amp; engine health monitoring.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Kafka Partitioning & Ordering -->
+        <section id="kafka-architecture">
+          <h2>Kafka Message Partitioning &amp; Key Design</h2>
+          <p>
+            In distributed event streaming, preserving message ordering is paramount. When multiple events for the same delivery arrive (e.g. <code>ORDER_LOADED</code> &rarr; <code>IN_TRANSIT</code> &rarr; <code>DELIVERED</code>), out-of-order processing will cause state corruption in downstream tables.
+          </p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-kafka">&#128273;</div>
+                <div class="card__title">Delivery Partition Key: <code>delivery_id</code></div>
+              </div>
+              <div class="card__body">
+                By publishing to Kafka with <code>delivery_id</code> as the record key, Kafka's Murmur2 hash partitioner guarantees that every lifecycle event for a specific transit always lands on the exact same topic partition. Consumers process each delivery strictly in chronological order.
+              </div>
+              <div class="card__footer">
+                <span>Topic: <code>delivery-events</code></span>
+                <span class="badge-kafka">Partition Consistency</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-kafka">&#128273;</div>
+                <div class="card__title">Fleet Partition Key: <code>vehicle_id</code></div>
+              </div>
+              <div class="card__body">
+                Vehicle telemetry publishes hundreds of GPS and sensor pings per minute. By keying on <code>vehicle_id</code>, stateful stream computations (such as odometer distance integration and speed acceleration) run deterministically on a single consumer thread without cross-partition locking.
+              </div>
+              <div class="card__footer">
+                <span>Topic: <code>vehicle-telemetry-events</code></span>
+                <span class="badge-kafka">Telemetry Affinity</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Application 1: Delivery Operations (DataStream API) -->
+        <section id="app-delivery">
+          <h2>Application 1: Delivery Operations (Java DataStream API)</h2>
+          <p>
+            <strong>Source Code:</strong> <code>services/flink/src/main/java/local/deliveryflow/DeliveryStreamingJob.java</code><br>
+            <strong>ClickHouse Sink:</strong> <code>services/flink/src/main/java/local/deliveryflow/ClickHouseDeliverySink.java</code>
+          </p>
+          <p>
+            The delivery streaming application is written using Flink's low-level <strong>DataStream API</strong> in Java. It consumes raw JSON messages from Kafka, validates schema versioning, manages event-time watermarks, and writes multi-projection records into ClickHouse.
+          </p>
+
+          <h3>Technical Implementation Details</h3>
+          <ul>
+            <li><strong>Checkpointing Strategy:</strong> Checkpointing is configured at 10,000ms (10 seconds) intervals with <code>CheckpointingMode.AT_LEAST_ONCE</code> and a 60-second timeout. This provides low latency state commits while allowing ClickHouse's <code>ReplacingMergeTree</code> to deduplicate replayed records during recovery.</li>
+            <li><strong>Watermarking:</strong> Uses <code>WatermarkStrategy.forBoundedOutOfOrderness(Duration.ofSeconds(30)).withIdleness(Duration.ofMinutes(1))</code>. This accommodates up to 30 seconds of network transmission jitter without dropping late events.</li>
+            <li><strong>Contract Filtering:</strong> Events pass through a custom filter verifying <code>schemaVersion == 1</code> and a non-blank <code>eventId</code>. Malformed payloads are discarded before reaching the sink.</li>
+            <li><strong>State Partitioning:</strong> Events are keyed by <code>event.deliveryId</code> using Flink's <code>keyBy()</code> operator.</li>
+          </ul>
+
+          <h3>ClickHouse Multi-Projection HTTP Sink</h3>
+          <p>
+            Rather than requiring a heavy native JDBC driver, <code>ClickHouseDeliverySink</code> writes directly to ClickHouse using HTTP <code>POST</code> with <code>FORMAT JSONEachRow</code>. For every event received, Flink materializes three distinct projections:
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>ClickHouse Target Table</th>
+                  <th>Engine</th>
+                  <th>Deduplication / Key Logic</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>delivery.delivery_events</code></td>
+                  <td><code>MergeTree</code></td>
+                  <td><code>ORDER BY (delivery_id, event_timestamp, event_id)</code></td>
+                  <td>Complete immutable historical ledger; partitioned monthly with a 30-day automatic TTL drop.</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.delivery_current_state</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td><code>ORDER BY delivery_id</code>; version is <code>eventTimestamp</code> in epoch milliseconds.</td>
+                  <td>Instant state lookup for dispatchers. Contains calculated flags: <code>is_delayed = delay_minutes &gt; 0</code> and <code>utilization = used / total</code>.</td>
+                </tr>
+                <tr>
+                  <td><code>delivery.vehicle_current_state</code></td>
+                  <td><code>ReplacingMergeTree(version)</code></td>
+                  <td><code>ORDER BY vehicle_id</code>; version is <code>eventTimestamp</code> in epoch milliseconds.</td>
+                  <td>Real-time vehicle GPS position, active transit route ID, and load capacity.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Application 2: Fleet Telemetry (Flink SQL) -->
+        <section id="app-fleet">
+          <h2>Application 2: Vehicle Fleet Telemetry (Flink SQL)</h2>
+          <p>
+            <strong>Java Orchestrator:</strong> <code>services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java</code><br>
+            <strong>SQL Definition:</strong> <code>services/flink/src/main/resources/sql/fleet/vehicle_telemetry.sql</code>
+          </p>
+          <p>
+            The fleet telemetry application demonstrates modern declarative stream processing with <strong>Flink SQL</strong>. It registers Kafka as an external streaming table and executes continuous streaming transformations in real time.
+          </p>
+
+          <!-- Source DDL -->
+          <h3>1. Kafka Streaming Source DDL</h3>
+          <p>
+            Flink SQL registers the Kafka topic with native ISO-8601 JSON decoding and a 10-second bounded watermark:
+          </p>
+
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-header__lang">Flink SQL &mdash; Kafka Source DDL</span>
+              <button class="btn-copy" type="button" data-copy="CREATE TABLE vehicle_telemetry_source (
+    schema_version INT,
+    event_id STRING,
+    event_type STRING,
+    event_timestamp TIMESTAMP_LTZ(3),
+    ingestion_timestamp TIMESTAMP_LTZ(3),
+    vehicle_id STRING,
+    driver_id STRING,
+    latitude DOUBLE,
+    longitude DOUBLE,
+    speed_kmh DOUBLE,
+    fuel_level_pct DOUBLE,
+    engine_temperature_c DOUBLE,
+    odometer_km DOUBLE,
+    engine_status STRING,
+    vehicle_status STRING,
+    WATERMARK FOR event_timestamp AS event_timestamp - INTERVAL '10' SECOND
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'vehicle-telemetry-events',
+    'properties.bootstrap.servers' = 'kafka:9092',
+    'properties.group.id' = 'fleet-vehicle-telemetry-sql',
+    'scan.startup.mode' = 'earliest-offset',
+    'format' = 'json'
+);">Copy SQL</button>
+            </div>
+            <div class="code-body">
+              <pre><code>CREATE TABLE vehicle_telemetry_source (
+    schema_version INT,
+    event_id STRING,
+    event_type STRING,
+    event_timestamp TIMESTAMP_LTZ(3),
+    ingestion_timestamp TIMESTAMP_LTZ(3),
+    vehicle_id STRING,
+    driver_id STRING,
+    latitude DOUBLE,
+    longitude DOUBLE,
+    speed_kmh DOUBLE,
+    fuel_level_pct DOUBLE,
+    engine_temperature_c DOUBLE,
+    odometer_km DOUBLE,
+    engine_status STRING,
+    vehicle_status STRING,
+    WATERMARK FOR event_timestamp AS event_timestamp - INTERVAL '10' SECOND
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'vehicle-telemetry-events',
+    'properties.bootstrap.servers' = 'kafka:9092',
+    'properties.group.id' = 'fleet-vehicle-telemetry-sql',
+    'scan.startup.mode' = 'earliest-offset',
+    'format' = 'json'
+);</code></pre>
+            </div>
+          </div>
+
+          <!-- Continuous Health Alerts -->
+          <h3>2. Real-Time Anomaly Detection &amp; Safety Alerts</h3>
+          <p>
+            Continuous queries evaluate diagnostic metrics against operating safety limits and route violations directly to <code>fleet.vehicle_health_alerts</code>:
+          </p>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Alert Type</th>
+                  <th>Threshold Condition</th>
+                  <th>Severity Level</th>
+                  <th>Operational Consequence</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>OVERSPEED</code></td>
+                  <td><code>speed_kmh &gt;= 100.0 km/h</code></td>
+                  <td><span class="status-pill status-pill--warning">Warning</span></td>
+                  <td>Driver safety warning, speed governor audit log.</td>
+                </tr>
+                <tr>
+                  <td><code>LOW_FUEL</code></td>
+                  <td><code>fuel_level_pct &lt;= 15.0%</code></td>
+                  <td><span class="status-pill status-pill--warning">Warning</span></td>
+                  <td>Refueling prompt dispatched to nearest warehouse route stop.</td>
+                </tr>
+                <tr>
+                  <td><code>ENGINE_TEMPERATURE_HIGH</code></td>
+                  <td><code>engine_temperature_c &gt;= 105.0 &deg;C</code></td>
+                  <td><span class="status-pill status-pill--danger">Critical</span></td>
+                  <td>Immediate pull-over instruction to prevent engine block failure.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 5-Minute Tumbling Windows -->
+          <h3>3. 5-Minute Tumbling Window Metric Computation</h3>
+          <p>
+            Flink SQL aggregates rolling 5-minute diagnostic summaries across the entire active fleet using Window Table-Valued Functions (TVF):
+          </p>
+
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-header__lang">Flink SQL &mdash; 5-Minute Tumbling Window</span>
+              <button class="btn-copy" type="button" data-copy="SELECT
+    window_start,
+    window_end,
+    COUNT(DISTINCT vehicle_id) AS active_vehicle_count,
+    AVG(speed_kmh) AS avg_speed_kmh,
+    AVG(fuel_level_pct) AS avg_fuel_level_pct,
+    MAX(engine_temperature_c) AS max_engine_temperature_c,
+    SUM(CASE WHEN speed_kmh >= 100.0 THEN 1 ELSE 0 END) AS overspeed_vehicle_count,
+    SUM(CASE WHEN fuel_level_pct <= 15.0 THEN 1 ELSE 0 END) AS low_fuel_vehicle_count
+FROM TABLE(TUMBLE(TABLE vehicle_telemetry_source, DESCRIPTOR(event_timestamp), INTERVAL '5' MINUTES))
+WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY'
+GROUP BY window_start, window_end;">Copy SQL</button>
+            </div>
+            <div class="code-body">
+              <pre><code>SELECT
     window_start,
     window_end,
     COUNT(DISTINCT vehicle_id) AS active_vehicle_count,
@@ -206,50 +428,104 @@
 FROM TABLE(TUMBLE(TABLE vehicle_telemetry_source, DESCRIPTOR(event_timestamp), INTERVAL '5' MINUTES))
 WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY'
 GROUP BY window_start, window_end;</code></pre>
-        </div>
-
-        <h2 id="operational-commands">Operational Streaming Commands</h2>
-        <p>Manage and verify the streaming pipelines using standard Makefile targets:</p>
-
-        <div class="terminal-block">
-          <div class="terminal-header">
-            <span>PowerShell &mdash; Streaming Lifecycle Commands</span>
-            <button class="terminal-copy-btn" type="button" data-copy="make submit-flink-job&#10;make produce-stream&#10;make submit-flink-job APP=fleet&#10;make produce APP=fleet&#10;make test-e2e&#10;make test-e2e APP=fleet">Copy All</button>
+            </div>
           </div>
-          <pre class="terminal-body"><code># Submit default delivery streaming job
-make submit-flink-job
+        </section>
 
-# Produce delivery stream events
-make produce-stream
-
-# Submit fleet Flink SQL streaming job
-make submit-flink-job APP=fleet
-
-# Produce fleet telemetry events
-make produce APP=fleet
-
-# Run automated end-to-end assertions against ClickHouse
-make test-e2e
-make test-e2e APP=fleet</code></pre>
-        </div>
-
-        <div class="callout callout--info">
-          <div class="callout__title">Verify in UIs</div>
+        <!-- ClickHouse Streaming Serving Layer -->
+        <section id="clickhouse-serving">
+          <h2>ClickHouse Real-Time Serving Mechanics</h2>
           <p>
-            Monitor streaming jobs in the <strong>Flink Web UI</strong> at <a href="http://localhost:8081" target="_blank">http://localhost:8081</a> and inspect Kafka topics in the <strong>Kafka UI</strong> at <a href="http://localhost:8083" target="_blank">http://localhost:8083</a>.
+            ClickHouse is configured to handle high-frequency streaming writes without lock contention or excessive partition fragmenting:
           </p>
-        </div>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&zap;</div>
+                <div class="card__title">ReplacingMergeTree Deduplication</div>
+              </div>
+              <div class="card__body">
+                Tables like <code>delivery_current_state</code> use <code>ENGINE = ReplacingMergeTree(version)</code>. When events for the same <code>delivery_id</code> are written repeatedly, ClickHouse retains the row with the highest <code>version</code> (epoch milliseconds of <code>event_timestamp</code>) during background merges or on queries with <code>FINAL</code>.
+              </div>
+              <div class="card__footer">
+                <span>Idempotent Ingestion</span>
+                <span class="badge-clickhouse">State Deduplication</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&#9203;</div>
+                <div class="card__title">30-Day TTL Partition Retention</div>
+              </div>
+              <div class="card__body">
+                The immutable history table <code>delivery_events</code> defines <code>TTL toDateTime(event_timestamp) + INTERVAL 30 DAY</code>. ClickHouse automatically purges expired event partitions in the background, keeping local storage footprint small while preserving full historical depth in the Lakehouse.
+              </div>
+              <div class="card__footer">
+                <span>Monthly Partitions</span>
+                <span class="badge-clickhouse">Automated Pruning</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Operations Runbook -->
+        <section id="operational-commands">
+          <h2>Streaming Lifecycle &amp; Runbook Commands</h2>
+          <p>Manage and inspect streaming pipelines using bundled <code>Makefile</code> targets:</p>
+
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <div class="terminal-dots">
+                <span class="terminal-dot terminal-dot--red"></span>
+                <span class="terminal-dot terminal-dot--yellow"></span>
+                <span class="terminal-dot terminal-dot--green"></span>
+              </div>
+              <div class="terminal-title">bash &mdash; Streaming Execution Runbook</div>
+              <button class="btn-copy" type="button" data-copy="make submit-flink-job&#10;make produce-stream&#10;make submit-flink-job APP=fleet&#10;make produce APP=fleet&#10;make test-e2e&#10;make test-e2e APP=fleet">Copy Commands</button>
+            </div>
+            <div class="terminal-body">
+              <div class="terminal-cmd"># 1. Submit the default Java DataStream delivery job to Flink</div>
+              <div class="terminal-cmd">make submit-flink-job</div>
+              <div class="terminal-cmd"># 2. Produce synthetic delivery lifecycle events to Kafka</div>
+              <div class="terminal-cmd">make produce-stream</div>
+              <div class="terminal-cmd"># 3. Submit the Flink SQL vehicle fleet telemetry application</div>
+              <div class="terminal-cmd">make submit-flink-job APP=fleet</div>
+              <div class="terminal-cmd"># 4. Stream vehicle IoT diagnostic telemetry</div>
+              <div class="terminal-cmd">make produce APP=fleet</div>
+              <div class="terminal-cmd"># 5. Run automated end-to-end assertions against ClickHouse</div>
+              <div class="terminal-cmd">make test-e2e</div>
+              <div class="terminal-cmd">make test-e2e APP=fleet</div>
+            </div>
+          </div>
+
+          <div class="alert alert-info">
+            <div>
+              <div class="alert-title">Live Management Consoles</div>
+              Inspect running stream graphs and partition offsets via browser:
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.25rem;">
+                <li><strong>Flink Web UI:</strong> <a href="http://localhost:8081" target="_blank">http://localhost:8081</a> (Job graph, throughput, watermarks, checkpoints).</li>
+                <li><strong>Kafka UI:</strong> <a href="http://localhost:8083" target="_blank">http://localhost:8083</a> (Topic partitions, consumer lag, message browser).</li>
+                <li><strong>ClickHouse HTTP:</strong> <a href="http://localhost:8123/play" target="_blank">http://localhost:8123/play</a> (Interactive SQL client).</li>
+              </ul>
+            </div>
+          </div>
+        </section>
       </article>
     </main>
 
+    <!-- Right Sticky TOC -->
     <aside class="toc-sidebar">
-      <div class="toc-title">On this page</div>
+      <div class="toc-title">On This Page</div>
       <ul class="toc-nav">
-        <li><a href="#streaming-overview">Streaming Overview</a></li>
-        <li><a href="#event-contracts">Event Contracts &amp; Topics</a></li>
-        <li><a href="#app-1-delivery">App 1: Delivery Operations</a></li>
-        <li><a href="#app-2-fleet">App 2: Fleet Telemetry</a></li>
-        <li><a href="#operational-commands">Operational Commands</a></li>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#streaming-topology">Topology</a></li>
+        <li><a href="#kafka-architecture">Kafka Partitioning</a></li>
+        <li><a href="#app-delivery">App 1: Delivery DataStream</a></li>
+        <li><a href="#app-fleet">App 2: Fleet Flink SQL</a></li>
+        <li><a href="#clickhouse-serving">ClickHouse Serving</a></li>
+        <li><a href="#operational-commands">Runbook Commands</a></li>
       </ul>
     </aside>
   </div>

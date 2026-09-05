@@ -3,12 +3,19 @@
 ## Current BI Scope
 
 Superset BI-as-code currently covers the `delivery` application dashboard and its five approved statistics. The new `fleet` stream application writes serving tables into ClickHouse `fleet.*`, but no fleet Superset dashboard is imported yet.
+Superset BI-as-code currently covers two production dashboards for the `delivery` application:
+1. **DeliveryFlow Operations Dashboard** (5 operational stream & batch charts)
+2. **Transportation Cost & Route Performance Dashboard** (7 financial & route risk charts with 4 native filters)
+
+The `fleet` stream application writes serving tables into ClickHouse `fleet.*`, ready for future telemetry dashboards.
 
 This separation is intentional:
 
 - `delivery` BI assets stay in `configs/superset/deliveryflow_bi.yaml`.
+- `delivery` BI assets are defined declaratively in `configs/superset/deliveryflow_bi.yaml`.
 - `fleet` serving tables are ready for future BI assets.
 - Future domains should use separate BI metadata instead of putting every dashboard into one YAML file.
+- Future domains use separate BI metadata instead of putting every dashboard into one YAML file.
 
 Fleet tables available for future Superset datasets:
 
@@ -86,6 +93,7 @@ Primary tables:
 - `delivery.delivery_current_state`
 - `delivery.vehicle_current_state`
 - `delivery.daily_delivery_kpi`
+- `delivery.daily_transportation_cost_kpi`
 
 Prepared report views:
 
@@ -94,6 +102,7 @@ Prepared report views:
 - `delivery.v_vehicle_utilization`
 - `delivery.v_warehouse_daily_kpi`
 - `delivery.v_delivery_event_volume`
+- `delivery.v_transportation_cost_performance`
 
 ```mermaid
 flowchart TB
@@ -322,6 +331,54 @@ Questions answered by the dashboard:
 - Which event type is most common?
 - How is event load distributed by region?
 
+## Dashboard 2: Transportation Cost & Route Performance
+
+Dataset: `delivery.v_transportation_cost_performance`
+
+Filters: `business_date`, `warehouse_id`, `region`, `route_id`
+
+### Report 6: Actual Transportation Cost
+- Visualization: Big Number (`big_number_total`)
+- Metric: `actual_cost` (SUM)
+- Subheader: "Actual transportation cost"
+- Purpose: Displays total operational transportation spend in dollars.
+
+### Report 7: Transportation Cost Variance
+- Visualization: Big Number (`big_number_total`)
+- Metric: `cost_variance` (SUM)
+- Subheader: "Actual cost minus planned cost"
+- Purpose: Tracks absolute budget deviation across routes.
+
+### Report 8: Transportation Cost per Delivery
+- Visualization: Big Number (`big_number_total`)
+- Metric: `cost_per_delivery` (AVG)
+- Subheader: "Actual cost per delivery"
+- Purpose: Highlights unit drop-off economics.
+
+### Report 9: Transportation Cost Breakdown
+- Visualization: Stacked Bar (`dist_bar`)
+- Metrics: `fuel_cost`, `driver_cost`, `toll_cost`, `maintenance_cost`, `other_cost`
+- Dimension: `business_date`
+- Purpose: Analyzes daily cost composition shares.
+
+### Report 10: Route Cost Performance
+- Visualization: Table (`table`)
+- Metrics: `actual_cost`, `cost_per_delivery`, `cost_variance`
+- Dimensions: `route_id`, `region`
+- Purpose: Ranks transit corridors by actual cost and budget overruns.
+
+### Report 11: Warehouse Region Transportation Cost
+- Visualization: Distribution Bar (`dist_bar`)
+- Metric: `actual_cost`
+- Dimensions: `warehouse_id`, `region`
+- Purpose: Identifies high-cost warehouse hubs and delivery territories.
+
+### Report 12: Route Cost vs Delay Risk
+- Visualization: Table (`table`)
+- Metrics: `actual_cost`, `delay_rate`, `avg_delay_minutes`, `cost_delay_risk_score`
+- Dimensions: `route_id`, `warehouse_id`, `region`
+- Purpose: Flags high-cost routes that simultaneously suffer from excessive shipment delays.
+
 ## Dashboard Layout Proposal
 
 ```mermaid
@@ -441,6 +498,10 @@ This YAML file is the source of truth for the following objects:
 - datasets: 5 ClickHouse report views
 - charts: 5 operational/statistical report
 - dashboard: `DeliveryFlow Operations Dashboard`
+- datasets: 6 ClickHouse report views (including `v_transportation_cost_performance`)
+- charts: 12 operational, financial, and statistical charts
+- dashboards: 2 dashboards (`DeliveryFlow Operations Dashboard` and `Transportation Cost & Route Performance`)
+- native filters: `business_date`, `warehouse_id`, `region`, and `route_id`
 - temporal metadata: `business_date` and `event_hour`
 - chart metric metadata: YAML metric names converted to Superset adhoc metric format
 

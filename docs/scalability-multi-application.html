@@ -1,70 +1,21 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>DeliveryFlow Scalability and Multi-Application Architecture | DeliveryFlow Docs</title>
-    <link rel="stylesheet" href="assets/css/documentation.css">
-    <script src="assets/js/documentation.js" defer></script>
-  </head>
-  <body>
-    <a class="skip-link" href="#main">Skip to content</a>
-    <header class="site-shell">
-      <nav class="portal-nav" aria-label="Documentation navigation">
-        <a class="brand" href="index.html">DeliveryFlow Docs</a>
-        <div>
-          <a href="architecture-decisions.html">Architecture</a>
-          <a href="application-workflow.html">Workflow</a>
-          <a href="superset-serving.html">BI</a>
-          <a href="scalability-multi-application.html">Scale</a>
-        </div>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
-      </nav>
-      <section class="doc-hero">
-        <p class="eyebrow">Converted Documentation</p>
-        <h1>DeliveryFlow Scalability and Multi-Application Architecture</h1>
-        <p>Converted from docs/scalability-multi-application.md. The Markdown source remains available for editing and review.</p>
-      </section>
-    </header>
-    <main id="main" class="doc-layout">
-      <aside class="doc-toc" aria-label="Page sections"><a href="#deliveryflow-scalability-and-multi-application-architecture">DeliveryFlow Scalability and Multi-Application Architecture</a>
-<a href="#current-repository-state">Current Repository State</a>
-<a href="#scale-risks-in-the-current-baseline">Scale Risks in the Current Baseline</a>
-<a href="#one-custom-file-per-table">One Custom File Per Table</a>
-<a href="#one-flink-job-per-table">One Flink Job Per Table</a>
-<a href="#one-spark-job-per-table">One Spark Job Per Table</a>
-<a href="#one-airflow-dag-per-table">One Airflow DAG Per Table</a>
-<a href="#one-kafka-topic-per-table">One Kafka Topic Per Table</a>
-<a href="#one-superset-yaml-for-everything">One Superset YAML for Everything</a>
-<a href="#control-plane-and-data-plane">Control Plane and Data Plane</a>
-<a href="#target-metadata-model">Target Metadata Model</a>
-<a href="#repository-architecture">Repository Architecture</a>
-<a href="#application-registry">Application Registry</a>
-<a href="#dataset-registry">Dataset Registry</a>
-<a href="#kafka-architecture">Kafka Architecture</a>
-<a href="#schema-registry-decision">Schema Registry Decision</a>
-<a href="#flink-architecture">Flink Architecture</a>
-<a href="#spark-and-batch-architecture">Spark and Batch Architecture</a>
-<a href="#airflow-architecture">Airflow Architecture</a>
-<a href="#iceberg-minio-and-nessie">Iceberg, MinIO, and Nessie</a>
-<a href="#postgresql-separation">PostgreSQL Separation</a>
-<a href="#clickhouse-architecture">ClickHouse Architecture</a>
-<a href="#superset-architecture">Superset Architecture</a>
-<a href="#observability-and-operations">Observability and Operations</a></aside>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Scalability &amp; Multi-Application Architecture | DeliveryFlow Docs</title>
-  <meta name="description" content="Blueprint for scaling DeliveryFlow to 300-500 tables via metadata-driven control plane, contract governance, and lakehouse isolation.">
+  
+  <meta name="description" content="Architectural blueprint for scaling DeliveryFlow from 2 applications to 300-500 enterprise datasets via metadata-driven control plane and contract governance.">
   <link rel="stylesheet" href="assets/css/documentation.css">
   <script src="assets/js/documentation.js" defer></script>
 </head>
 <body>
-  <header class="site-header">
+    <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Scalability</span>
+        <span class="brand__badge">Data Platform</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -74,10 +25,11 @@
   </header>
 
   <div class="app-container">
-    <aside class="sidebar">
+        <aside class="sidebar">
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html">Platform Overview</a></li>
           <li><a href="developer-guide.html">Developer Guide</a></li>
@@ -90,6 +42,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html" class="active">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -99,6 +52,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -124,6 +78,7 @@ more compute/storage capacity
         <h1>Scalability &amp; Multi-Application Architecture</h1>
         <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
           A metadata-driven architectural blueprint designed to scale DeliveryFlow from a local lab to 300&ndash;500 tables without duplicating DAGs, scripts, streaming jobs, or dashboard definitions.
+          A technical blueprint for scaling DeliveryFlow from 2 applications to 300&ndash;500 datasets without operational collapse. Explains how metadata-driven control planes, contract governance, and modular pipeline factories replace brittle custom code.
         </p>
 
 It should not mostly mean:
@@ -137,10 +92,14 @@ more manual deployment steps
 <pre><code>
 delivery
   Producer -&gt; Kafka delivery-events -&gt; DeliveryStreamingJob -&gt; ClickHouse delivery.* -&gt; Superset
-        <div class="callout callout--info">
-          <div class="callout__title">The Golden Scalability Axiom</div>
+        <h2 id="core-philosophy">The Golden Rule of Enterprise Scalability</h2>
+        <div class="alert alert-info">
+          <div class="alert-title">The Golden Scalability Axiom</div>
+          <div class="alert-title">Scale Law</div>
           <p>
             Adding new applications or datasets should primarily mean <strong>more metadata</strong>, <strong>more contracts</strong>, and <strong>more compute/storage capacity</strong>. It must <strong>never</strong> mean more copy-pasted DAGs, duplicated ETL scripts, hardcoded table names, or manual deployment ceremonies.
+            Adding new datasets, business domains, or downstream tables must mean adding <strong>more metadata, more contracts, and more compute/storage capacity</strong>.<br>
+            It must <strong>never</strong> mean copying DAG files, writing repetitive Spark runners, hardcoding database names, or manually clicking through BI UIs.
           </p>
         </div>
 
@@ -224,6 +183,18 @@ CONTROL PLANE
         <p>
           Typical enterprise data platforms suffer from anti-patterns when scaling from tens to hundreds of tables. The table below details how DeliveryFlow prevents these pitfalls:
         </p>
+        <h2 id="scale-risks">Scale Bottlenecks in Naive Architectures</h2>
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">File Explosion</h3>
+              <span class="badge badge--danger">Risk</span>
+            </div>
+            <div class="service-card__role">1 Script Per Table</div>
+            <div class="service-card__body">
+              <p>Writing individual Python, SQL, or Spark files for 500 tables creates an unmaintainable codebase where bug fixes require hundreds of manual edits.</p>
+            </div>
+          </div>
 
 DATA PLANE
   Kafka
@@ -304,11 +275,45 @@ dataset_id: fleet.vehicle_telemetry
               </tr>
             </tbody>
           </table>
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Streaming Sprawl</h3>
+              <span class="badge badge--danger">Risk</span>
+            </div>
+            <div class="service-card__role">1 Flink Job Per Table</div>
+            <div class="service-card__body">
+              <p>Deploying 500 discrete Flink streaming jobs exhausts TaskManager memory and creates unmanageable checkpoint coordination overhead.</p>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">DAG Duplication</h3>
+              <span class="badge badge--danger">Risk</span>
+            </div>
+            <div class="service-card__role">1 Airflow File Per Table</div>
+            <div class="service-card__body">
+              <p>Copy-pasting Airflow DAGs leads to scheduler parse lag, duplicated sensor logic, and missing data quality gate checks.</p>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Monolithic BI Config</h3>
+              <span class="badge badge--danger">Risk</span>
+            </div>
+            <div class="service-card__role">1 Giant YAML File</div>
+            <div class="service-card__body">
+              <p>Stuffing 50 dashboards into a single YAML configuration causes merge conflicts across teams and breaks atomic BI deployment.</p>
+            </div>
+          </div>
         </div>
 
         <h2 id="control-vs-data-plane">Control Plane vs. Data Plane</h2>
+        <h2 id="control-plane">The Control Plane Solution</h2>
         <p>
           DeliveryFlow separates the platform into a declarative <strong>Control Plane</strong> and an executable <strong>Data Plane</strong>:
+          DeliveryFlow separates the <strong>Control Plane</strong> (metadata, schema contracts, application configurations) from the <strong>Data Plane</strong> (execution runtimes like Flink, Spark, ClickHouse, and Iceberg):
         </p>
 
         <div class="diagram-container">
@@ -317,15 +322,28 @@ dataset_id: fleet.vehicle_telemetry
               <div class="flow-step__title">Control Plane</div>
               <div class="flow-step__tech">Git + Metadata YAML</div>
               <div class="flow-step__desc">Application registry, dataset schemas, contracts, SLAs &amp; quality rules</div>
+              <div class="flow-step__title">1. Control Plane</div>
+              <div class="flow-step__tech">configs/ &amp; contracts/</div>
+              <div class="flow-step__desc">Application metadata, dataset schemas, SLA definitions</div>
             </div>
             <div class="flow-arrow">&rarr;</div>
             <div class="flow-step">
               <div class="flow-step__title">Data Plane</div>
               <div class="flow-step__tech">Distributed Compute &amp; Storage</div>
               <div class="flow-step__desc">Kafka, Flink, Spark, Iceberg, Nessie, ClickHouse, Airflow &amp; Superset</div>
+              <div class="flow-step__title">2. Framework Factories</div>
+              <div class="flow-step__tech">DAG &amp; Spark Factories</div>
+              <div class="flow-step__desc">Generic runners instantiate pipelines dynamically</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">3. Data Plane</div>
+              <div class="flow-step__tech">Engines &amp; Storage</div>
+              <div class="flow-step__desc">Flink, Spark, Iceberg, ClickHouse execute data work</div>
             </div>
           </div>
           <div class="diagram-caption">Figure 1: Control Plane declares desired state; Data Plane executes transformations.</div>
+          <div class="diagram-caption">Figure 1: Decoupling pipeline logic from data execution via metadata-driven factories.</div>
         </div>
 
         <h3>Control Plane File Structure</h3>
@@ -350,11 +368,17 @@ src/contracts/
   fleet/
     vehicle_telemetry_v1.schema.json # JSON Schema for vehicle telemetry</code></pre>
         </div>
+        <h2 id="layer-guidelines">Layer-by-Layer Scaling Patterns</h2>
 
         <h2 id="dataset-metadata-spec">Target Dataset Metadata Specification</h2>
         <p>
           Onboarding a new table into DeliveryFlow requires only adding a YAML dataset specification into <code>configs/datasets/&lt;domain&gt;/</code>. Here is a production-grade dataset record:
         </p>
+        <h3>1. Apache Kafka Architecture</h3>
+        <ul>
+          <li><strong>Domain-Oriented Topics:</strong> Avoid creating a separate Kafka topic for every database table. Group high-velocity events into logical domain topics (e.g., <code>delivery-events</code>, <code>vehicle-telemetry-events</code>).</li>
+          <li><strong>Partitioning:</strong> Use natural business entity keys (<code>delivery_id</code>, <code>vehicle_id</code>) to preserve strict in-order processing per entity without global serialization locks.</li>
+        </ul>
 
         <div class="terminal-block">
           <div class="terminal-header">
@@ -366,13 +390,28 @@ application: fleet
 domain: fleet-operations
 description: Vehicle telemetry stream used for fleet health monitoring.
 description: Vehicle telemetry stream used for real-time fleet health monitoring.
+        <h3>2. Apache Flink Architecture</h3>
+        <ul>
+          <li><strong>Job Grouping:</strong> Group streaming pipelines by business capability rather than individual tables. For example, <code>DeliveryStreamingJob</code> handles the entire shipment lifecycle.</li>
+          <li><strong>Dual Engine Paradigms:</strong> Use DataStream API for stateful, complex event validation; use Flink SQL/Table API for declarative time-window aggregations.</li>
+        </ul>
 
 source:
   type: kafka
   topic: vehicle-telemetry-events
   key: vehicle_id
+        <h3>3. Apache Spark &amp; Lakehouse ETL</h3>
+        <ul>
+          <li><strong>Generic Batch Runners:</strong> Standardize on shared Spark reader, writer, and quality validation libraries. Pipeline-specific code only defines business transformations.</li>
+          <li><strong>3-Tier Medallion Architecture:</strong> Maintain raw immutable Bronze snapshots, row-level cleansed and enriched Silver tables, and multi-dimensional aggregated Gold tables in Iceberg.</li>
+        </ul>
 
 contract: src/contracts/fleet/vehicle_telemetry_v1.schema.json
+        <h3>4. Apache Airflow Orchestration</h3>
+        <ul>
+          <li><strong>Dynamic DAG Factories:</strong> Use pattern-based factories (e.g., <code>dags/batch_spark_dag_factory.py</code>) to instantiate source readiness checks, Spark job submissions, and serving validations.</li>
+          <li><strong>Zero Transformation Rule:</strong> Airflow workers only manage external submission hooks; heavy compute remains strictly within Spark and ClickHouse.</li>
+        </ul>
 
 ingestion:
   mode: streaming
@@ -381,6 +420,11 @@ ingestion:
     - event_id
   watermark_column: event_timestamp
   late_arrival_tolerance_seconds: 10
+        <h3>5. ClickHouse Serving &amp; Superset BI</h3>
+        <ul>
+          <li><strong>ReplacingMergeTree:</strong> Deduplicate records on partition merges to absorb out-of-order streaming retries without duplicating metrics.</li>
+          <li><strong>Modular BI-as-Code:</strong> Split BI configurations into domain-specific YAML definitions, synchronizing them idempotently through automated REST API importers.</li>
+        </ul>
 
 target:
   layer: serving
@@ -446,8 +490,10 @@ target:
   namespace: logistics
   table: customer_orders
         <h3>Kafka Topic Strategy</h3>
+        <h2 id="onboarding-blueprint">New Dataset Onboarding Blueprint</h2>
         <p>
           Rather than creating one Kafka topic per database table, DeliveryFlow adopts an <strong>event-family topic strategy</strong>:
+          To add a new dataset in a scaled DeliveryFlow deployment, follow this 4-step checklist:
         </p>
         <ul>
           <li><strong>Domain Topic Isolation:</strong> <code>delivery-events</code> carries delivery order lifecycle states; <code>vehicle-telemetry-events</code> carries IoT vehicle metrics.</li>
@@ -477,6 +523,9 @@ configs/
                 <th>Pros</th>
                 <th>Cons</th>
                 <th>DeliveryFlow Verdict</th>
+                <th>Step</th>
+                <th>Action Required</th>
+                <th>Files Modified / Created</th>
               </tr>
             </thead>
             <tbody>
@@ -485,18 +534,32 @@ configs/
                 <td>Single deployment</td>
                 <td>Failure blast radius covers entire company; checkpoint lag</td>
                 <td><span class="service-card__badge service-card__badge--storage" style="background: rgba(239, 68, 68, 0.15); color: #dc2626;">Rejected</span></td>
+                <td><strong>1. Define Contract</strong></td>
+                <td>Create JSON schema or DDL specification</td>
+                <td><code>src/contracts/&lt;domain&gt;/&lt;dataset&gt;_v1.schema.json</code></td>
               </tr>
               <tr>
                 <td><strong>One Job Per Table</strong></td>
                 <td>Total isolation</td>
                 <td>Massive memory overhead, thousands of checkpoint threads</td>
                 <td><span class="service-card__badge service-card__badge--storage" style="background: rgba(239, 68, 68, 0.15); color: #dc2626;">Rejected</span></td>
+                <td><strong>2. Register Dataset</strong></td>
+                <td>Add metadata declaration (source, grain, SLA)</td>
+                <td><code>configs/datasets/&lt;domain&gt;/&lt;dataset&gt;.yaml</code></td>
               </tr>
               <tr>
                 <td><strong>One Job Per Application / Domain</strong></td>
                 <td>Isolated failure domains, right-sized state, domain ownership</td>
                 <td>Requires domain routing and moderate job management</td>
                 <td><span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Adopted Standard</span></td>
+                <td><strong>3. Register DAG</strong></td>
+                <td>Add entry to Airflow DAG factory configuration</td>
+                <td><code>dags/batch_spark_dag_factory.py</code></td>
+              </tr>
+              <tr>
+                <td><strong>4. Declare BI Assets</strong></td>
+                <td>Specify ClickHouse view and Superset charts</td>
+                <td><code>configs/superset/deliveryflow_bi.yaml</code></td>
               </tr>
             </tbody>
           </table>
@@ -934,20 +997,17 @@ configs/superset/fleet/
           </div>
         </div>
       </article>
-
-      <div class="page-toc">
-        <div class="page-toc__title">On this page</div>
-        <ul class="page-toc__list">
-          <li><a href="#scale-risks">Scale Risks</a></li>
-          <li><a href="#control-vs-data-plane">Control vs Data Plane</a></li>
-          <li><a href="#dataset-metadata-spec">Dataset Metadata</a></li>
-          <li><a href="#stream-partitioning-strategy">Kafka &amp; Flink Scaling</a></li>
-          <li><a href="#lakehouse-scaling">Lakehouse Scaling</a></li>
-          <li><a href="#roadmap">Scaling Roadmap</a></li>
-        </ul>
-      </div>
     </main>
-  </body>
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-nav">
+        <li><a href="#core-philosophy">The Golden Rule</a></li>
+        <li><a href="#scale-risks">Scale Bottlenecks</a></li>
+        <li><a href="#control-plane">Control Plane Solution</a></li>
+        <li><a href="#layer-guidelines">Layer Scaling Patterns</a></li>
+        <li><a href="#onboarding-blueprint">Onboarding Blueprint</a></li>
+      </ul>
+    </aside>
   </div>
 </body>
 </html>

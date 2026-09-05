@@ -12,8 +12,9 @@
   <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Overview</span>
+        <span class="brand__badge">Data Platform</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -27,6 +28,7 @@
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html" class="active">Platform Overview</a></li>
           <li><a href="developer-guide.html">Developer Guide</a></li>
@@ -39,6 +41,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -48,6 +51,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -62,200 +66,252 @@
 
     <main class="main-content">
       <article class="doc-article">
-        <h1>Platform Overview</h1>
-        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
-          DeliveryFlow is a local modern data platform designed to solve operational and analytical logistics challenges. It demonstrates how modern data engineering bridges low-latency event processing with large-scale Lakehouse storage without incurring cloud infrastructure costs.
-        </p>
-
-        <h2 id="business-problem">The Logistics Business Problem</h2>
-        <p>
-          In freight, e-commerce, and last-mile logistics, delivery operations suffer from two opposing operational demands:
-        </p>
-        <ol>
-          <li><strong>Immediate Operational Awareness (Seconds to Minutes):</strong> Dispatchers and customer support need to know <em>where a parcel is right now</em>, whether a truck is experiencing delays, if engine temperature has spiked, or if fuel is running dangerously low. This requires real-time streaming pipelines.</li>
-          <li><strong>Strategic &amp; Financial Analytics (Daily to Multi-Year):</strong> Logistics executives and supply chain managers need to evaluate <em>daily carrier SLA compliance</em>, warehouse dispatch bottlenecks, regional delay trends, vehicle fleet fuel efficiency, and route optimization. This requires historical batch Lakehouse computation.</li>
-        </ol>
-
-        <div class="callout callout--info">
-          <div class="callout__title">The Dual-Engine Approach</div>
-          <p>
-            DeliveryFlow addresses this by pairing <strong>Apache Flink</strong> for continuous real-time state tracking with <strong>Apache Spark + Apache Iceberg</strong> for robust historical batch analytics, unified through <strong>ClickHouse</strong> as a high-speed analytical serving layer.
+        <!-- Hero Section -->
+        <section class="hero-banner" id="overview">
+          <div class="hero-title">Platform Overview &amp; Architecture</div>
+          <p class="hero-lead">
+            DeliveryFlow is a local modern data platform engineered to solve real-world operational and analytical logistics challenges. It demonstrates how modern data engineering bridges low-latency event processing with large-scale Lakehouse storage without incurring cloud infrastructure costs.
           </p>
-        </div>
 
-        <h2 id="dual-pipeline-design">Dual Pipeline Architecture</h2>
-        <p>
-          The platform routes data through two complementary paths:
-        </p>
-
-        <div class="diagram-container">
-          <div class="flow-grid">
-            <div class="flow-step" style="border-top: 3px solid var(--primary);">
-              <div class="flow-step__title">Operational Streaming</div>
-              <div class="flow-step__tech">Flink DataStream &amp; Flink SQL</div>
-              <div class="flow-step__desc">Sub-second event ingestion, schema validation, and current-state materialization in ClickHouse.</div>
+          <div class="hero-stats-bar">
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Stream Pipelines</div>
             </div>
-            <div class="flow-arrow">&amp;</div>
-            <div class="flow-step" style="border-top: 3px solid var(--accent);">
-              <div class="flow-step__title">Analytical Lakehouse</div>
-              <div class="flow-step__tech">Airflow + Spark + Iceberg</div>
-              <div class="flow-step__desc">Daily scheduled KPI computation, ACID commits to MinIO via Nessie, and publishing back to ClickHouse.</div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">2</div>
+              <div class="hero-stat__label">Batch Pipelines</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">5</div>
+              <div class="hero-stat__label">Iceberg Tables</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">9</div>
+              <div class="hero-stat__label">ClickHouse Objects</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat__number">10</div>
+              <div class="hero-stat__label">Docker Services</div>
             </div>
           </div>
-          <div class="diagram-caption">Figure 1: Side-by-side execution of streaming and batch paths.</div>
-        </div>
+        </section>
 
-        <h2 id="core-technologies">Technology Stack Deep Dive</h2>
-        <p>
-          Every technology in DeliveryFlow was chosen to reflect production standards while remaining lightweight enough to run reliably on a developer laptop:
-        </p>
-
-        <div class="card-grid">
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Kafka (KRaft)</h3>
-              <span class="badge badge--implemented">Transport</span>
-            </div>
-            <div class="service-card__role">Event Streaming Backbone</div>
-            <div class="service-card__body">
-              <p>Acts as the distributed, persistent message log. Runs in KRaft mode (no ZooKeeper dependency), decoupling event producers from downstream stream consumers.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Topics:</strong> <code>delivery-events</code>, <code>vehicle-telemetry-events</code></span>
-              <span><strong>Port:</strong> 9092</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Flink</h3>
-              <span class="badge badge--implemented">Stream Compute</span>
-            </div>
-            <div class="service-card__role">Stateful Stream Processing</div>
-            <div class="service-card__body">
-              <p>Provides event-time processing, watermark tracking, and tumbling window aggregations. Runs both DataStream API for delivery orders and Table API/SQL for fleet telemetry.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Jobs:</strong> <code>DeliveryStreamingJob</code>, <code>VehicleTelemetrySqlJob</code></span>
-              <span><strong>Web UI:</strong> Port 8081</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">ClickHouse</h3>
-              <span class="badge badge--implemented">Serving Layer</span>
-            </div>
-            <div class="service-card__role">Real-Time OLAP Database</div>
-            <div class="service-card__body">
-              <p>Columnar database optimized for analytical aggregations and instant dashboard queries. Uses <code>ReplacingMergeTree</code> for deduplicated latest-state records and <code>MergeTree</code> for event logs.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Databases:</strong> <code>delivery</code>, <code>fleet</code></span>
-              <span><strong>Ports:</strong> 8123 (HTTP), 9009 (Native)</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Spark</h3>
-              <span class="badge badge--implemented">Batch Compute</span>
-            </div>
-            <div class="service-card__role">Distributed Batch &amp; Lakehouse ETL</div>
-            <div class="service-card__body">
-              <p>Executes daily enriched KPI aggregations, reads source operational facts via JDBC, and writes versioned Parquet data to Iceberg tables.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Master UI:</strong> Port 8082</span>
-              <span><strong>Application:</strong> <code>daily_kpi_job.py</code></span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Iceberg &amp; Nessie</h3>
-              <span class="badge badge--implemented">Lakehouse</span>
-            </div>
-            <div class="service-card__role">Open Table Format &amp; Catalog</div>
-            <div class="service-card__body">
-              <p>Iceberg provides schema evolution, hidden partitioning, and ACID transactions. Nessie acts as the transactional catalog with git-like branch and commit semantics.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Warehouse:</strong> <code>s3://delivery-lakehouse/warehouse</code></span>
-              <span><strong>Catalog URI:</strong> Port 19120</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">MinIO Object Storage</h3>
-              <span class="badge badge--implemented">Storage</span>
-            </div>
-            <div class="service-card__role">Local S3-Compatible Storage</div>
-            <div class="service-card__body">
-              <p>Stores the physical Parquet data files, metadata JSONs, manifest lists, and manifest files created by Iceberg transactions.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Console UI:</strong> Port 9001</span>
-              <span><strong>API Port:</strong> 9000</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Airflow</h3>
-              <span class="badge badge--implemented">Orchestration</span>
-            </div>
-            <div class="service-card__role">Workflow Scheduler &amp; Control Plane</div>
-            <div class="service-card__body">
-              <p>Coordinates scheduled batch pipelines. Verifies ClickHouse source readiness before submitting Spark container execution.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>DAG:</strong> <code>delivery_daily_kpi</code></span>
-              <span><strong>Webserver UI:</strong> Port 8080</span>
-            </div>
-          </div>
-
-          <div class="service-card">
-            <div class="service-card__header">
-              <h3 class="service-card__title">Apache Superset</h3>
-              <span class="badge badge--implemented">BI &amp; Analytics</span>
-            </div>
-            <div class="service-card__role">BI-as-Code Dashboard Engine</div>
-            <div class="service-card__body">
-              <p>Provides operational delivery performance charts and regional KPIs. Entirely provisioned via declarative YAML configuration.</p>
-            </div>
-            <div class="service-card__meta">
-              <span><strong>Web UI:</strong> Port 8088</span>
-              <span><strong>Config:</strong> <code>deliveryflow_bi.yaml</code></span>
-            </div>
-          </div>
-        </div>
-
-        <h2 id="lifecycle-walkthrough">End-to-End Delivery Lifecycle</h2>
-        <p>Follow a delivery order from initial creation through the entire platform:</p>
-
-        <ol style="padding-left: 1.25rem;">
-          <li><strong>Order Placement &amp; Seed:</strong> The producer generates a delivery order and writes reference data (customer, warehouse, order value) to PostgreSQL <code>logistics_source</code>.</li>
-          <li><strong>Event Publication:</strong> As the delivery progresses, the producer emits lifecycle events (<code>ORDER_LOADED</code>, <code>VEHICLE_DEPARTED</code>, <code>IN_TRANSIT</code>, <code>DELIVERY_DELAYED</code>, <code>DELIVERED</code>) to Kafka <code>delivery-events</code> keyed by <code>delivery_id</code>.</li>
-          <li><strong>Stream Consumption:</strong> Flink's <code>DeliveryStreamingJob</code> validates the JSON schema contract, maintains event ordering, and streams updates via HTTP to ClickHouse.</li>
-          <li><strong>Serving Projection:</strong> ClickHouse updates <code>delivery.delivery_current_state</code> and appends to <code>delivery.delivery_events</code>.</li>
-          <li><strong>Live Operational Dashboard:</strong> Superset queries prepared analytical views in ClickHouse to show real-time status and active delays.</li>
-          <li><strong>Daily Lakehouse Batch:</strong> At midnight, Airflow triggers Spark's <code>daily_kpi_job.py</code>. Spark reads the day's event facts from ClickHouse, aggregates performance metrics, commits Bronze/Gold Iceberg tables to MinIO via Nessie, and writes daily KPI snapshots back to ClickHouse.</li>
-        </ol>
-
-        <div class="callout callout--success">
-          <div class="callout__title">Next Steps</div>
+        <!-- The Logistics Business Problem -->
+        <section id="business-problem">
+          <h2>The Logistics Business Problem</h2>
           <p>
-            Ready to explore the streaming implementation? Read the <a href="streaming-architecture.html">Streaming Architecture Guide</a> or check the <a href="developer-guide.html">Developer Guide</a> to start running commands.
+            In freight, e-commerce, and last-mile logistics, delivery operations suffer from two opposing operational demands:
           </p>
-        </div>
+          <ul>
+            <li><strong>Immediate Operational Awareness (Seconds to Minutes):</strong> Dispatchers and customer support need to know <em>where a parcel is right now</em>, whether a truck is experiencing highway delays, if engine temperature has spiked, or if fuel is running dangerously low. This requires continuous real-time streaming pipelines.</li>
+            <li><strong>Strategic &amp; Financial Analytics (Daily to Multi-Year):</strong> Logistics executives and supply chain managers need to evaluate <em>daily carrier SLA compliance</em>, warehouse dispatch bottlenecks, regional delay trends, vehicle fleet fuel efficiency, route profitability, and transportation cost variances. This requires historical batch Lakehouse computation.</li>
+          </ul>
+
+          <div class="alert alert-info">
+            <div>
+              <div class="alert-title">The Dual-Engine Approach</div>
+              DeliveryFlow addresses this by pairing <strong>Apache Flink</strong> for continuous real-time state tracking with <strong>Apache Spark + Apache Iceberg</strong> for robust historical batch analytics, unified through <strong>ClickHouse</strong> as a high-speed analytical serving layer.
+            </div>
+          </div>
+        </section>
+
+        <!-- Dual Pipeline Architecture -->
+        <section id="dual-pipeline-design">
+          <h2>Dual Pipeline Architecture</h2>
+          <p>
+            The platform routes data through two complementary paths running side by side:
+          </p>
+
+          <div class="flow-container">
+            <div class="flow-container__title">
+              <span>&#9654;</span> Operational Streaming vs. Analytical Lakehouse Paths
+            </div>
+
+            <div class="flow-pipeline">
+              <div class="flow-row">
+                <div class="flow-step" style="border-top: 3px solid var(--primary);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-flink">Path A: Real-Time</span>
+                    <span class="status-pill status-pill--success">&lt; 1s Latency</span>
+                  </div>
+                  <div class="flow-step__title">Operational Streaming Path</div>
+                  <div class="flow-step__desc">Kafka &rarr; Flink DataStream &amp; SQL &rarr; ClickHouse ReplacingMergeTree</div>
+                  <div class="flow-step__details">Sub-second event ingestion, schema validation, live deduplication, and active operational delay monitoring.</div>
+                </div>
+
+                <div class="flow-step" style="border-top: 3px solid var(--accent);">
+                  <div class="flow-step__header">
+                    <span class="flow-step__badge badge-iceberg">Path B: Batch Lakehouse</span>
+                    <span class="status-pill status-pill--info">Daily Scheduled</span>
+                  </div>
+                  <div class="flow-step__title">Analytical Lakehouse Path</div>
+                  <div class="flow-step__desc">Airflow &rarr; Spark Batch Jobs &rarr; Iceberg (Bronze/Silver/Gold) &rarr; ClickHouse Serving</div>
+                  <div class="flow-step__details">Snapshot isolation, ACID transactions on MinIO with Nessie, route cost variance calculations, and long-term trend analysis.</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Core Technologies Grid -->
+        <section id="core-technologies">
+          <h2>Technology Stack Deep Dive</h2>
+          <p>
+            Every technology in DeliveryFlow was chosen to reflect production enterprise standards while remaining lightweight enough to run reliably on a developer laptop:
+          </p>
+
+          <div class="card-grid">
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-kafka">&#9889;</div>
+                <div class="card__title">Apache Kafka (KRaft)</div>
+              </div>
+              <div class="card__body">
+                Acts as the distributed, persistent message log. Runs in KRaft mode (no ZooKeeper dependency), decoupling event producers from downstream stream consumers. Provides strict partition ordering by <code>delivery_id</code> and <code>vehicle_id</code>.
+              </div>
+              <div class="card__footer">
+                <span><strong>Topics:</strong> 2 Topics</span>
+                <span class="port-badge">9092</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-flink">&infin;</div>
+                <div class="card__title">Apache Flink 1.18</div>
+              </div>
+              <div class="card__body">
+                Provides native event-time processing, watermark tracking, and tumbling window aggregations. Runs both the DataStream API job for deliveries and Flink SQL for vehicle fleet telemetry.
+              </div>
+              <div class="card__footer">
+                <span><strong>Jobs:</strong> 2 Streaming Jobs</span>
+                <span class="port-badge">8081</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-clickhouse">&zap;</div>
+                <div class="card__title">ClickHouse 24.1</div>
+              </div>
+              <div class="card__body">
+                Columnar OLAP database optimized for analytical aggregations and instant dashboard queries. Uses <code>ReplacingMergeTree</code> for deduplicated latest-state records and <code>MergeTree</code> with 30-day TTL for raw events.
+              </div>
+              <div class="card__footer">
+                <span><strong>DBs:</strong> delivery, fleet</span>
+                <span class="port-badge">8123</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-spark">&#128293;</div>
+                <div class="card__title">Apache Spark 3.5</div>
+              </div>
+              <div class="card__body">
+                Executes daily enriched KPI aggregations, reads source operational facts via JDBC, computes route financial variances, and writes versioned Parquet data to Iceberg tables.
+              </div>
+              <div class="card__footer">
+                <span><strong>Jobs:</strong> 2 Batch Jobs</span>
+                <span class="port-badge">8082</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-iceberg">&Delta;</div>
+                <div class="card__title">Apache Iceberg &amp; Nessie</div>
+              </div>
+              <div class="card__body">
+                Open table format providing ACID commits, schema evolution, and hidden partitioning on MinIO S3. Project Nessie acts as the transactional catalog with Git-like commit semantics.
+              </div>
+              <div class="card__footer">
+                <span><strong>Catalog:</strong> Nessie REST</span>
+                <span class="port-badge">19120</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-minio">&#128452;</div>
+                <div class="card__title">MinIO Object Storage</div>
+              </div>
+              <div class="card__body">
+                Stores physical Parquet data files, metadata JSONs, manifest lists, and snapshot manifests created by Iceberg transactions inside the <code>delivery-lakehouse</code> bucket.
+              </div>
+              <div class="card__footer">
+                <span><strong>Bucket:</strong> delivery-lakehouse</span>
+                <span class="port-badge">9001</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-airflow">&#9201;</div>
+                <div class="card__title">Apache Airflow 2.8</div>
+              </div>
+              <div class="card__body">
+                Coordinates scheduled batch pipelines. Contains two production DAGs: <code>delivery_daily_kpi</code> for operational event aggregates and <code>delivery_transportation_cost_daily_batch</code> for financial route costs.
+              </div>
+              <div class="card__footer">
+                <span><strong>DAGs:</strong> 2 Scheduled DAGs</span>
+                <span class="port-badge">8080</span>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card__header">
+                <div class="card__icon badge-superset">&#128202;</div>
+                <div class="card__title">Apache Superset 3.1</div>
+              </div>
+              <div class="card__body">
+                Provides executive delivery operations and transportation cost dashboards. All datasets, charts, and dashboards are managed declaratively as code via automated Python scripts.
+              </div>
+              <div class="card__footer">
+                <span><strong>Dashboards:</strong> 2 Dashboards</span>
+                <span class="port-badge">8088</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- End-to-End Delivery Lifecycle -->
+        <section id="lifecycle-walkthrough">
+          <h2>End-to-End Delivery Lifecycle Walkthrough</h2>
+          <p>Follow a delivery order from initial creation through the entire platform:</p>
+
+          <ol style="padding-left: 1.5rem; line-height: 1.8;">
+            <li><strong>Order Placement &amp; Seed:</strong> The producer generates a delivery order and writes reference data (customer, warehouse, order value) to PostgreSQL <code>logistics_source</code>.</li>
+            <li><strong>Event Publication:</strong> As the delivery progresses, the producer emits lifecycle events (<code>ORDER_LOADED</code>, <code>VEHICLE_DEPARTED</code>, <code>IN_TRANSIT</code>, <code>DELIVERY_DELAYED</code>, <code>DELIVERED</code>) to Kafka <code>delivery-events</code> keyed by <code>delivery_id</code>.</li>
+            <li><strong>Stream Consumption:</strong> Flink's <code>DeliveryStreamingJob</code> validates the JSON schema contract, maintains event ordering, and streams updates via HTTP to ClickHouse.</li>
+            <li><strong>Serving Projection:</strong> ClickHouse updates <code>delivery.delivery_current_state</code> and appends to <code>delivery.delivery_events</code>.</li>
+            <li><strong>Live Operational Dashboard:</strong> Superset queries prepared analytical views in ClickHouse to show real-time status and active delays.</li>
+            <li><strong>Daily Lakehouse Batch:</strong> At midnight, Airflow triggers Spark's <code>daily_kpi_job.py</code> and <code>transportation_cost_kpi_job.py</code>. Spark aggregates performance metrics, commits Bronze/Silver/Gold Iceberg tables to MinIO via Nessie, and publishes daily KPI snapshots back to ClickHouse.</li>
+          </ol>
+
+          <div class="alert alert-success">
+            <div>
+              <div class="alert-title">Ready for Technical Deep Dives?</div>
+              Explore detailed schemas, contracts, and execution runbooks:
+              <ul style="margin: 0.5rem 0 0 0; padding-left: 1.25rem;">
+                <li><a href="data-model.html">Central Data Catalog &amp; Lineage Matrix &rarr;</a></li>
+                <li><a href="streaming-architecture.html">Streaming Architecture &amp; Flink SQL &rarr;</a></li>
+                <li><a href="batch-lakehouse.html">Batch Processing with Apache Iceberg &rarr;</a></li>
+                <li><a href="transportation-cost-flow.html">Transportation Cost Batch Flow &rarr;</a></li>
+                <li><a href="developer-guide.html">Developer Guide &amp; Command Reference &rarr;</a></li>
+              </ul>
+            </div>
+          </div>
+        </section>
       </article>
     </main>
 
+    <!-- Right Sticky TOC -->
     <aside class="toc-sidebar">
-      <div class="toc-title">On this page</div>
+      <div class="toc-title">On This Page</div>
       <ul class="toc-nav">
+        <li><a href="#overview">Overview</a></li>
         <li><a href="#business-problem">The Business Problem</a></li>
         <li><a href="#dual-pipeline-design">Dual Pipeline Architecture</a></li>
         <li><a href="#core-technologies">Technology Stack</a></li>

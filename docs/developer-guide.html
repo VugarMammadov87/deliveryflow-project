@@ -9,11 +9,12 @@
   <script src="assets/js/documentation.js" defer></script>
 </head>
 <body>
-  <header class="site-header">
+    <header class="site-header">
     <div class="site-header__inner">
       <a class="brand" href="index.html">
+        <span class="brand__logo">DF</span>
         <span>DeliveryFlow</span>
-        <span class="brand__badge">Developer Guide</span>
+        <span class="brand__badge">Data Platform</span>
       </a>
       <div class="header-actions">
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
@@ -23,10 +24,11 @@
   </header>
 
   <div class="app-container">
-    <aside class="sidebar">
+        <aside class="sidebar">
       <div class="sidebar-group">
         <div class="sidebar-title">Getting Started</div>
         <ul class="sidebar-nav">
+          <li><a href="../README.html">Platform Guide (README)</a></li>
           <li><a href="index.html">Portal Home</a></li>
           <li><a href="platform-overview.html">Platform Overview</a></li>
           <li><a href="developer-guide.html" class="active">Developer Guide</a></li>
@@ -39,6 +41,7 @@
           <li><a href="application-workflow.html">Application Workflow</a></li>
           <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
           <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="transportation-cost-flow.html">Transportation Cost Flow</a></li>
           <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
           <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
         </ul>
@@ -48,6 +51,7 @@
         <div class="sidebar-title">Data &amp; Serving</div>
         <ul class="sidebar-nav">
           <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="data-model.html">Data Model &amp; Catalog</a></li>
           <li><a href="superset-serving.html">Superset BI Serving</a></li>
         </ul>
       </div>
@@ -117,13 +121,13 @@
           </table>
         </div>
 
-        <div class="callout callout--warning">
-          <div class="callout__title">Host Port Availability</div>
+        <div class="alert alert-warning">
+          <div class="alert-title">Host Port Availability</div>
           <p>
             Verify that the following local ports are not bound by existing host services:
             <code>5433</code> (Postgres Source), <code>5434</code> (Postgres Airflow), <code>8080</code> (Airflow Web), 
             <code>8081</code> (Flink JobManager), <code>8088</code> (Superset UI), <code>8123</code> (ClickHouse HTTP), 
-            <code>9000</code> (ClickHouse Native), <code>9001</code> (MinIO S3 API), <code>9002</code> (MinIO Console), 
+            <code>8123</code> (ClickHouse HTTP), <code>9009</code> (ClickHouse Native), <code>9000</code> (MinIO S3 API), <code>9001</code> (MinIO Console), 
             <code>9092</code> (Kafka Broker), and <code>19120</code> (Nessie Catalog API).
           </p>
         </div>
@@ -502,8 +506,8 @@ make dag-trigger</code></pre>
 
         <h2 id="teardown-and-safety">Teardown Operations &amp; Data Safety</h2>
 
-        <div class="callout callout--danger">
-          <div class="callout__title">&#9888; CRITICAL SAFETY: make clean vs. make purge</div>
+        <div class="alert alert-danger">
+          <div class="alert-title">&#9888; CRITICAL SAFETY: make clean vs. make purge</div>
           <p>
             DeliveryFlow maintains a strict operational distinction between routine teardown and factory reset. Always understand the difference before executing maintenance commands:
           </p>
@@ -582,8 +586,7 @@ pytest tests/ -v</code></pre>
         </div>
       </article>
 
-      <div class="page-toc">
-        <div class="page-toc__title">On this page</div>
+      
         <ul class="page-toc__list">
           <li><a href="#prerequisites">Prerequisites</a></li>
           <li><a href="#step-by-step-setup">Step-by-Step Setup</a></li>
@@ -594,6 +597,17 @@ pytest tests/ -v</code></pre>
         </ul>
       </div>
     </main>
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-nav">
+        <li><a href="#prerequisites">Prerequisites</a></li>
+        <li><a href="#step-by-step-setup">Step-by-Step Setup</a></li>
+        <li><a href="#end-to-end-demos">Running Demos</a></li>
+        <li><a href="#command-reference">Command Reference</a></li>
+        <li><a href="#teardown-and-safety">Teardown & Safety</a></li>
+        <li><a href="#local-testing">Local Testing</a></li>
+      </ul>
+    </aside>
   </div>
 </body>
 </html>
