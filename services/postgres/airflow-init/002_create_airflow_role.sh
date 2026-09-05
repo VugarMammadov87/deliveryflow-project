@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Initialize the Airflow application user and grant schema permissions on airflow_metadata.
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL

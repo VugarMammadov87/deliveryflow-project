@@ -1,4 +1,4 @@
-﻿# Codex Implementation Plan
+# Codex Implementation Plan
 ## Real-Time Delivery Monitoring and Daily Transportation Optimization
 
 > **Primary source of truth:** `requirement.md`
@@ -462,35 +462,62 @@ Create only the minimum foundation required for the next approved service.
 
 ```text
 project-root/
-â”œâ”€â”€ requirement.md
-â”œâ”€â”€ plan.md
-â”œâ”€â”€ .env
-â”œâ”€â”€ .env.example
-â”œâ”€â”€ .gitignore
-â”œâ”€â”€ Makefile
-â”œâ”€â”€ docker-compose.yml
-â”œâ”€â”€ docker-compose.local.yml
-â”‚
-â”œâ”€â”€ services/
-â”‚   â”œâ”€â”€ kafka/
-â”‚   â”œâ”€â”€ flink/
-â”‚   â”œâ”€â”€ spark/
-â”‚   â”œâ”€â”€ airflow/
-â”‚   â”œâ”€â”€ clickhouse/
-â”‚   â”œâ”€â”€ object-storage/
-â”‚   â”œâ”€â”€ nessie/
-â”‚   â””â”€â”€ postgres/
-â”‚
-â”œâ”€â”€ dags/
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ producers/
-â”‚   â”œâ”€â”€ streaming/
-â”‚   â””â”€â”€ batch/
-â”œâ”€â”€ configs/
-â”œâ”€â”€ scripts/
-â”œâ”€â”€ tests/
-â”œâ”€â”€ docs/
-â””â”€â”€ data/
+|--  requirement.md
+|--  plan.md
+|--  .env
+|--  .env.example
+|--  .gitignore
+|--  Makefile
+|--  docker-compose.yml
+|--  docker-compose.local.yml
+|-- requirement.md
+|-- plan.md
+|-- .env
+|-- .env.example
+|-- .gitignore
+|-- Makefile
+|-- docker-compose.yml
+|-- docker-compose.local.yml
+|
+|--  services/
+|   |--  kafka/
+|   |--  flink/
+|   |--  spark/
+|   |--  airflow/
+|   |--  clickhouse/
+|   |--  object-storage/
+|   |--  nessie/
+|   \--  postgres/
+|-- services/
+|   |-- kafka/
+|   |-- flink/
+|   |-- spark/
+|   |-- airflow/
+|   |-- clickhouse/
+|   |-- object-storage/
+|   |-- nessie/
+|   \-- postgres/
+|
+|--  dags/
+|--  src/
+|   |--  producers/
+|   |--  streaming/
+|   \--  batch/
+|--  configs/
+|--  scripts/
+|--  tests/
+|--  docs/
+\--  data/
+|-- dags/
+|-- src/
+|   |-- producers/
+|   |-- streaming/
+|   \-- batch/
+|-- configs/
+|-- scripts/
+|-- tests/
+|-- docs/
+\-- data/
 ```
 
 This is a target structure, not authorization to create all directories immediately.
@@ -655,15 +682,15 @@ Provide a durable relational store for Airflow metadata and approved relational/
 
 ```text
 PostgreSQL Compose definition
-        â†“
+        v
 Named persistent volume
-        â†“
+        v
 Readiness health check
-        â†“
+        v
 Airflow metadata database
-        â†“
+        v
 Airflow role/user
-        â†“
+        v
 Optional isolated business/reference database
 ```
 
@@ -671,10 +698,14 @@ Optional isolated business/reference database
 
 ```text
 PostgreSQL Instance
-â”œâ”€â”€ airflow_metadata
-â”‚   â””â”€â”€ airflow role
-â””â”€â”€ logistics_reference
-    â””â”€â”€ application role
+|--  airflow_metadata
+|   \--  airflow role
+\--  logistics_reference
+    \--  application role
+|-- airflow_metadata
+|   \-- airflow role
+\-- logistics_reference
+    \-- application role
 ```
 
 The exact second database is created only if required.
@@ -709,23 +740,23 @@ Establish the event backbone.
 
 ```text
 Kafka Compose service
-        â†“
+        v
 KRaft configuration
-        â†“
+        v
 Internal listener
-        â†“
+        v
 External listener
-        â†“
+        v
 Persistent volume
-        â†“
+        v
 Readiness health check
-        â†“
+        v
 Configuration validation
-        â†“
+        v
 Service startup
-        â†“
+        v
 Topic provisioning
-        â†“
+        v
 Producer/consumer smoke test
 ```
 
@@ -777,15 +808,15 @@ Nessie remains the catalog.
 
 ```text
 Object-storage service
-        â†“
+        v
 Persistent volume
-        â†“
+        v
 Health check
-        â†“
+        v
 Development credentials
-        â†“
+        v
 Warehouse bucket
-        â†“
+        v
 Spark S3 connectivity test
 ```
 
@@ -825,15 +856,15 @@ S3-Compatible Object Storage
 
 ```text
 Nessie service
-    â†“
+    v
 Version compatibility validation
-    â†“
+    v
 Catalog endpoint
-    â†“
+    v
 Persistence configuration
-    â†“
+    v
 Health check
-    â†“
+    v
 Warehouse/catalog connectivity test
 ```
 
@@ -858,17 +889,17 @@ Prove the analytical storage foundation before business batch code is written.
 
 ```text
 Spark
-  â†“
+  v
 Nessie
-  â†“
+  v
 Create Iceberg namespace
-  â†“
+  v
 Create Iceberg test table
-  â†“
+  v
 Write records
-  â†“
+  v
 Parquet files stored in S3-compatible storage
-  â†“
+  v
 Read the same Iceberg table
 ```
 
@@ -899,13 +930,13 @@ Provide low-latency operational and analytical serving.
 
 ```text
 ClickHouse service
-    â†“
+    v
 Persistent volume
-    â†“
+    v
 HTTP endpoint
-    â†“
+    v
 Native endpoint
-    â†“
+    v
 Health check
 ```
 
@@ -1012,17 +1043,17 @@ Do not introduce CeleryExecutor, Redis, RabbitMQ, or KubernetesExecutor unless e
 
 ```text
 Airflow image/configuration
-        â†“
+        v
 PostgreSQL metadata connection
-        â†“
+        v
 Metadata DB migration/init
-        â†“
+        v
 Webserver
-        â†“
+        v
 Scheduler
-        â†“
+        v
 LocalExecutor validation
-        â†“
+        v
 Simple test DAG
 ```
 
@@ -1048,11 +1079,11 @@ Prove that Airflow can orchestrate Spark without business complexity.
 
 ```text
 Airflow DAG
-    â†“
+    v
 Submit simple Spark job
-    â†“
+    v
 Spark executes
-    â†“
+    v
 Task success returned to Airflow
 ```
 
@@ -1083,11 +1114,11 @@ Provide the real-time stream-processing engine.
 
 ```text
 Kafka
-  â†“
+  v
 Flink JobManager
-  â†“
+  v
 Flink TaskManager
-  â†“
+  v
 ClickHouse
 ```
 
@@ -1202,9 +1233,9 @@ Delivery status transitions
 
 ```text
 Python Producer
-      â†“
+      v
 Versioned JSON Events
-      â†“
+      v
 Kafka
 ```
 
@@ -1239,19 +1270,19 @@ Build the first complete real-time processing path.
 
 ```text
 Producer
-   â†“
+   v
 Kafka
-   â†“
+   v
 Flink
-   â†“
+   v
 Deserialize JSON
-   â†“
+   v
 Validate
-   â†“
+   v
 Keyed/stateful processing
-   â†“
+   v
 ETA / delay / route logic
-   â†“
+   v
 ClickHouse
 ```
 
@@ -1270,9 +1301,9 @@ ClickHouse
 
 ```text
 Generate event
-â†’ Kafka receives event
-â†’ Flink processes event
-â†’ ClickHouse contains expected result
+-> Kafka receives event
+-> Flink processes event
+-> ClickHouse contains expected result
 ```
 
 ### Exit Criteria
@@ -1305,9 +1336,9 @@ delivery_confirmation_events
 
 ```text
 Iceberg table
-    â†“
+    v
 Parquet files
-    â†“
+    v
 S3-compatible object storage
 
 Catalog:
@@ -1345,15 +1376,15 @@ Process completed and historical transportation data.
 
 ```text
 Iceberg Raw
-    â†“
+    v
 Spark
-    â†“
+    v
 Clean / Validate / Deduplicate
-    â†“
+    v
 Silver
-    â†“
+    v
 Aggregate
-    â†“
+    v
 Gold KPI Tables
 ```
 
@@ -1409,17 +1440,17 @@ Move the proven Spark workflow under Airflow orchestration.
 
 ```text
 check_source_readiness
-        â†“
+        v
 run_spark_daily_batch
-        â†“
+        v
 validate_outputs
-        â†“
+        v
 run_data_quality_checks
-        â†“
+        v
 publish_analytical_outputs
-        â†“
+        v
 publish_to_clickhouse_if_approved
-        â†“
+        v
 complete
 ```
 
@@ -1459,11 +1490,11 @@ Expose analytical results efficiently for BI.
 
 ```text
 Spark Gold Iceberg Tables
-          â†“
+          v
 Approved Publication Step
-          â†“
+          v
 ClickHouse
-          â†“
+          v
 Superset
 ```
 
@@ -1582,25 +1613,25 @@ Critical data-quality failures are detectable and visible.
 
 ```text
 Same Kafka event twice
-â†’ no incorrect duplicate business result
+-> no incorrect duplicate business result
 
 Flink restart
-â†’ state recovers
+-> state recovers
 
 Same Spark source twice
-â†’ deterministic output
+-> deterministic output
 
 Airflow retry
-â†’ no duplicate publication
+-> no duplicate publication
 
 Airflow backfill
-â†’ correct historical partition/date
+-> correct historical partition/date
 
 Kafka replay
-â†’ derived state can be rebuilt
+-> derived state can be rebuilt
 
 Iceberg replay/reprocessing
-â†’ analytical tables can be recalculated
+-> analytical tables can be recalculated
 ```
 
 ### Exit Criteria
@@ -1808,21 +1839,21 @@ Infrastructure is stable enough for end-to-end business validation.
 
 ```text
 Baku Warehouse
-      â†“
+      v
 Truck with customer orders
-      â†“
+      v
 GPS + Delivery Events
-      â†“
+      v
 Versioned JSON
-      â†“
+      v
 Kafka
-      â†“
+      v
 Flink
-      â†“
+      v
 Delay / ETA / State Processing
-      â†“
+      v
 ClickHouse
-      â†“
+      v
 Operational Analytics
 ```
 
@@ -1830,19 +1861,19 @@ Operational Analytics
 
 ```text
 Raw Events
-    â†“
+    v
 Iceberg + Parquet
-    â†“
+    v
 Nessie
-    â†“
+    v
 Airflow LocalExecutor
-    â†“
+    v
 Spark
-    â†“
+    v
 Daily KPI Tables
-    â†“
+    v
 ClickHouse / Approved Serving
-    â†“
+    v
 Superset
 ```
 

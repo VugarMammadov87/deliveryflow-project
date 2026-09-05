@@ -1,3 +1,6 @@
+# Delivery Application Metadata Specification
+# Defines ownership, streaming job engine, batch KPI parameters, and serving targets
+# for real-time delivery order lifecycle operations.
 application: delivery
 domain: logistics
 owner:

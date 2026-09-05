@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streaming Architecture | DeliveryFlow Docs</title>
+  <meta name="description" content="Technical guide for Kafka, Flink DataStream, Flink SQL, and ClickHouse serving in DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Streaming</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html" class="active">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>Streaming Architecture</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          DeliveryFlow implements two independent production-grade stream processing applications with Apache Kafka, Apache Flink, and ClickHouse: a DataStream API application for delivery operations and a Table API/SQL application for fleet vehicle telemetry.
+        </p>
+
+        <h2 id="streaming-overview">Streaming Architecture Overview</h2>
+        <p>
+          The streaming layer ingests asynchronous domain events, validates them against strict schema contracts, tracks entity state, and publishes operational rows into ClickHouse serving tables in real time.
+        </p>
+
+        <div class="diagram-container">
+          <div class="flow-grid">
+            <div class="flow-step">
+              <div class="flow-step__title">Synthetic Producer</div>
+              <div class="flow-step__tech">Python 3.10+</div>
+              <div class="flow-step__desc">Generates versioned JSON events with partition keys</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Apache Kafka</div>
+              <div class="flow-step__tech">KRaft Broker</div>
+              <div class="flow-step__desc">Partitioned event log with 3 partitions per topic</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Apache Flink</div>
+              <div class="flow-step__tech">DataStream &amp; SQL</div>
+              <div class="flow-step__desc">Event-time watermarks, validation, tumbling windows</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">ClickHouse</div>
+              <div class="flow-step__tech">Serving Engines</div>
+              <div class="flow-step__desc">MergeTree history &amp; ReplacingMergeTree state</div>
+            </div>
+          </div>
+          <div class="diagram-caption">Figure 1: Core streaming architecture pipeline.</div>
+        </div>
+
+        <h2 id="event-contracts">Event Contracts &amp; Topics</h2>
+        <p>
+          Each application has an isolated Kafka topic and a versioned JSON schema contract located in <code>src/contracts/&lt;domain&gt;/</code>:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Application</th>
+                <th>Kafka Topic</th>
+                <th>Message Key</th>
+                <th>Contract Schema</th>
+                <th>Key Attributes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Delivery</strong> (Default)</td>
+                <td><code>delivery-events</code></td>
+                <td><code>delivery_id</code></td>
+                <td><code>src/contracts/delivery/delivery_event_v1.schema.json</code></td>
+                <td><code>schema_version</code>, <code>event_type</code>, <code>delivery_id</code>, <code>status</code>, <code>delay_minutes</code>, <code>capacity_used</code></td>
+              </tr>
+              <tr>
+                <td><strong>Fleet</strong> (<code>APP=fleet</code>)</td>
+                <td><code>vehicle-telemetry-events</code></td>
+                <td><code>vehicle_id</code></td>
+                <td><code>src/contracts/fleet/vehicle_telemetry_v1.schema.json</code></td>
+                <td><code>vehicle_id</code>, <code>speed_kmh</code>, <code>fuel_level_pct</code>, <code>engine_temperature_c</code>, <code>engine_status</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--tip">
+          <div class="callout__title">Why Key Messages?</div>
+          <p>
+            Publishing messages with a business key (e.g. <code>delivery_id</code> or <code>vehicle_id</code>) guarantees that all sequential events for that specific entity are assigned to the same Kafka partition, preserving chronological ordering without requiring a single global partition.
+          </p>
+        </div>
+
+        <h2 id="app-1-delivery">Application 1: Delivery Operations (DataStream API)</h2>
+        <p>
+          <strong>Implementation:</strong> <code>services/flink/src/main/java/local/deliveryflow/DeliveryStreamingJob.java</code>
+        </p>
+        <p>
+          The delivery streaming job handles parcel order progression through various milestone events (<code>ORDER_LOADED</code>, <code>VEHICLE_DEPARTED</code>, <code>IN_TRANSIT</code>, <code>DELIVERY_DELAYED</code>, <code>DELIVERED</code>).
+        </p>
+        
+        <h3>Key Technical Decisions</h3>
+        <ul>
+          <li><strong>Checkpointing:</strong> Enabled at 10-second intervals with <code>CheckpointingMode.AT_LEAST_ONCE</code> and a 60-second timeout.</li>
+          <li><strong>Watermarking:</strong> Uses <code>WatermarkStrategy.forBoundedOutOfOrderness(Duration.ofSeconds(30))</code> with 1-minute idleness detection to handle network jitter.</li>
+          <li><strong>Validation:</strong> Enforces <code>schema_version == 1</code>, rejects malformed payloads, and keys by <code>delivery_id</code>.</li>
+          <li><strong>HTTP Sink:</strong> <code>ClickHouseDeliverySink.java</code> writes to ClickHouse using HTTP <code>JSONEachRow</code> format. This keeps the local deployment free from heavy binary driver overhead.</li>
+        </ul>
+
+        <h3>Target Serving Tables in ClickHouse <code>delivery.*</code></h3>
+        <ul>
+          <li><code>delivery.delivery_events</code>: Complete immutable event ledger (Engine: <code>MergeTree</code>, 30-day TTL).</li>
+          <li><code>delivery.delivery_current_state</code>: Latest state per delivery, deduplicated by timestamp version (Engine: <code>ReplacingMergeTree(version)</code>).</li>
+          <li><code>delivery.vehicle_current_state</code>: Latest location and utilization per vehicle (Engine: <code>ReplacingMergeTree(version)</code>).</li>
+        </ul>
+
+        <h2 id="app-2-fleet">Application 2: Fleet Telemetry (Flink SQL)</h2>
+        <p>
+          <strong>Implementation:</strong> <code>services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java</code><br>
+          <strong>SQL Queries:</strong> <code>services/flink/src/main/resources/sql/fleet/vehicle_telemetry.sql</code>
+        </p>
+        <p>
+          The fleet telemetry application runs alongside the delivery pipeline as an independent streaming application. It processes continuous GPS and diagnostic streams using Flink SQL and the Table API.
+        </p>
+
+        <h3>Core SQL Pipeline Queries</h3>
+        <p>The Flink SQL pipeline executes four parallel continuous queries from a single Kafka source table:</p>
+        <ol>
+          <li><strong>Raw Telemetry Sink:</strong> Streams clean, validated telemetry records directly into <code>fleet.vehicle_telemetry_events</code>.</li>
+          <li><strong>Current State Tracking:</strong> Emits point-in-time vehicle status to <code>fleet.vehicle_current_state</code>.</li>
+          <li><strong>Health Alerting Filter:</strong> Evaluates threshold breaches in real time and routes alerts to <code>fleet.vehicle_health_alerts</code>:
+            <ul>
+              <li><strong>Overspeed Alert:</strong> <code>speed_kmh &gt;= 100.0</code> (Severity: <code>warning</code>)</li>
+              <li><strong>Low Fuel Alert:</strong> <code>fuel_level_pct &lt;= 15.0%</code> (Severity: <code>warning</code>)</li>
+              <li><strong>High Engine Temp:</strong> <code>engine_temperature_c &gt;= 105.0 &deg;C</code> (Severity: <code>critical</code>)</li>
+            </ul>
+          </li>
+          <li><strong>5-Minute Tumbling Window Aggregation:</strong> Computes rolling metrics using Flink's window table-valued functions:</li>
+        </ol>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span>SQL &mdash; Fleet 5-Minute Tumbling Window (vehicle_telemetry.sql)</span>
+          </div>
+          <pre class="terminal-body"><code>SELECT
+    window_start,
+    window_end,
+    COUNT(DISTINCT vehicle_id) AS active_vehicle_count,
+    AVG(speed_kmh) AS avg_speed_kmh,
+    AVG(fuel_level_pct) AS avg_fuel_level_pct,
+    MAX(engine_temperature_c) AS max_engine_temperature_c,
+    SUM(CASE WHEN speed_kmh >= 100.0 THEN 1 ELSE 0 END) AS overspeed_vehicle_count,
+    SUM(CASE WHEN fuel_level_pct <= 15.0 THEN 1 ELSE 0 END) AS low_fuel_vehicle_count
+FROM TABLE(TUMBLE(TABLE vehicle_telemetry_source, DESCRIPTOR(event_timestamp), INTERVAL '5' MINUTES))
+WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY'
+GROUP BY window_start, window_end;</code></pre>
+        </div>
+
+        <h2 id="operational-commands">Operational Streaming Commands</h2>
+        <p>Manage and verify the streaming pipelines using standard Makefile targets:</p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span>PowerShell &mdash; Streaming Lifecycle Commands</span>
+            <button class="terminal-copy-btn" type="button" data-copy="make submit-flink-job&#10;make produce-stream&#10;make submit-flink-job APP=fleet&#10;make produce APP=fleet&#10;make test-e2e&#10;make test-e2e APP=fleet">Copy All</button>
+          </div>
+          <pre class="terminal-body"><code># Submit default delivery streaming job
+make submit-flink-job
+
+# Produce delivery stream events
+make produce-stream
+
+# Submit fleet Flink SQL streaming job
+make submit-flink-job APP=fleet
+
+# Produce fleet telemetry events
+make produce APP=fleet
+
+# Run automated end-to-end assertions against ClickHouse
+make test-e2e
+make test-e2e APP=fleet</code></pre>
+        </div>
+
+        <div class="callout callout--info">
+          <div class="callout__title">Verify in UIs</div>
+          <p>
+            Monitor streaming jobs in the <strong>Flink Web UI</strong> at <a href="http://localhost:8081" target="_blank">http://localhost:8081</a> and inspect Kafka topics in the <strong>Kafka UI</strong> at <a href="http://localhost:8083" target="_blank">http://localhost:8083</a>.
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <aside class="toc-sidebar">
+      <div class="toc-title">On this page</div>
+      <ul class="toc-nav">
+        <li><a href="#streaming-overview">Streaming Overview</a></li>
+        <li><a href="#event-contracts">Event Contracts &amp; Topics</a></li>
+        <li><a href="#app-1-delivery">App 1: Delivery Operations</a></li>
+        <li><a href="#app-2-fleet">App 2: Fleet Telemetry</a></li>
+        <li><a href="#operational-commands">Operational Commands</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>

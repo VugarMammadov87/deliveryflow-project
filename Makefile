@@ -1,3 +1,7 @@
+# DeliveryFlow Local Platform Developer Makefile
+# Provides standardized commands for local Docker Compose lifecycle,
+# synthetic event generation, Flink streaming, Spark batch ETL, and Superset BI assets.
+
 SHELL := /bin/sh
 COMPOSE := docker compose
 
@@ -27,9 +31,11 @@ export PRODUCER_APP
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
 	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie logs-producer-continuous \
 	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
+	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning docs
 
 help:
 	@echo "DeliveryFlow local platform"
+	@echo "  make docs                Open the HTML Documentation Portal"
 	@echo "  make config              Validate Docker Compose configuration"
 	@echo "  make build               Build local Airflow, Flink, producer, tooling, Spark, and Superset images"
 	@echo "  make pull                Pull pinned upstream images"
@@ -238,3 +244,7 @@ endif
 clean-warning:
 	@echo "Destructive cleanup is intentionally not implemented as a default target."
 	@echo "Do not remove named volumes without explicit approval."
+
+docs:
+	@echo "Opening DeliveryFlow Documentation Portal..."
+	@python -c "import webbrowser, os; webbrowser.open('file://' + os.path.abspath('docs/index.html'))" 2>/dev/null || echo "Documentation Portal located at: docs/index.html"

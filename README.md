@@ -2,7 +2,7 @@
 
 ## Multi-Application Stream Architecture Update
 
-DeliveryFlow artiq tek delivery stream demo kimi deyil, bir nece application qebul ede bilen platforma kimi qurulur. Default operator flow oldugu kimi qalir:
+DeliveryFlow is now being built as a platform that can support multiple applications rather than only a single delivery-stream demo. The default operator flow remains unchanged:
 
 ```powershell
 Copy-Item .env.example .env
@@ -16,7 +16,7 @@ make import-superset-assets
 make console
 ```
 
-Fleet vehicle telemetry ikinci stream application-dir ve delivery job-a toxunmadan ayrica isleyir:
+Fleet vehicle telemetry is a second stream application and runs independently without changing the delivery job:
 
 ```powershell
 make submit-flink-job APP=fleet
@@ -24,9 +24,9 @@ make produce APP=fleet
 make test-e2e APP=fleet
 ```
 
-Bu ayrim 300-500 table scale ucun vacibdir: app metadata-si `configs/applications/`, dataset metadata-si `configs/datasets/`, JSON contract-lar ise `src/contracts/<domain>/` altinda saxlanilir. `delivery-events` topic-i delivery lifecycle event-leri ucundur; `vehicle-telemetry-events` topic-i fleet telemetry ucundur. ClickHouse-da da eyni ownership ayrimi var: `delivery.*` delivery operations, `fleet.*` fleet telemetry serving qatidir.
+This separation is important at a scale of 300-500 tables: application metadata is stored under `configs/applications/`, dataset metadata under `configs/datasets/`, and JSON contracts under `src/contracts/<domain>/`. The `delivery-events` topic carries delivery lifecycle events, while `vehicle-telemetry-events` carries fleet telemetry. ClickHouse follows the same ownership boundary: `delivery.*` serves delivery operations and `fleet.*` serves fleet telemetry.
 
-Fleet telemetry obyektleri:
+Fleet telemetry assets:
 
 - `configs/applications/fleet.yaml`
 - `configs/datasets/fleet/vehicle_telemetry.yaml`
@@ -37,47 +37,85 @@ Fleet telemetry obyektleri:
 - `fleet.vehicle_health_alerts`
 - `fleet.vehicle_metrics_5m`
 
-DeliveryFlow lokal Docker Compose üzərində qurulmuş data engineering layihəsidir. Layihə logistika domenində həm real-time delivery monitoring, həm də gündəlik batch analytics proseslərini göstərir.
+DeliveryFlow is a data engineering project built on local Docker Compose. It demonstrates both real-time delivery monitoring and daily batch analytics for the logistics domain.
 
-Bu README layihəyə ilk dəfə baxan biri üçün yazılıb: haradan başlamaq lazımdır, hansı servis nə edir, `make` komandaları hansı ardıcıllıqla işlədilir və pipeline-lar necə yoxlanılır.
+This README is intended for first-time users. It explains where to start, what each service does, the order in which `make` commands are run, and how to verify the pipelines.
 
-## Qısa Xülasə
+## Brief Summary
 
-Layihədə iki əsas data axını var:
+The project has two primary data flows:
+## Architecture Concepts
 
 - **Stream pipeline**: `Producer -> Kafka -> Flink -> ClickHouse -> Superset`
 - **Batch pipeline**: `ClickHouse/PostgreSQL -> Spark -> Iceberg/Nessie/MinIO -> ClickHouse -> Superset`
+When exploring DeliveryFlow, these core technologies work together across the streaming and batch layers:
 
-Əsas servis rolları:
+Primary service roles:
+- **Kafka**: Receives events from the producer and acts as the distributed event transport layer.
+- **Flink**: Consumes events from Kafka and processes them in real time using event-time semantics.
+- **ClickHouse**: Serves as the operational and BI serving database for fast analytical queries.
+- **Apache Iceberg**: The open table format used for analytical datasets in the Data Lake.
+- **MinIO**: Stores the physical Parquet data files and Iceberg metadata in local S3-compatible object storage.
+- **Nessie**: Acts as the transactional Iceberg catalog and tracks table metadata references and git-like branches.
+- **Spark**: Reads and writes Iceberg tables and calculates daily batch KPIs.
+- **Airflow**: Orchestrates scheduled batch workflows and triggers Spark jobs.
+- **PostgreSQL**: Stores metadata for Airflow and Nessie, and hosts relational source tables for batch seeding.
+- **Superset**: Connects to ClickHouse to provide operational BI dashboards and reports.
 
-- **Kafka** event transport qatıdır.
-- **Flink** real-time stream processing edir.
-- **ClickHouse** operational və BI serving database-dir.
-- **Spark** batch KPI hesablayır.
-- **Iceberg** analytical table format verir.
-- **Nessie** Iceberg catalog-dur.
-- **MinIO** lokal S3-compatible object storage-dur.
-- **Airflow** batch job orchestration edir.
-- **PostgreSQL** Airflow, Nessie və source metadata saxlayır.
-- **Superset** dashboard və reporting qatıdır.
+- **Kafka** is the event transport layer.
+- **Flink** performs real-time stream processing.
+- **ClickHouse** is the operational and BI serving database.
+- **Spark** calculates batch KPIs.
+- **Iceberg** provides the analytical table format.
+- **Nessie** is the Iceberg catalog.
+- **MinIO** provides local S3-compatible object storage.
+- **Airflow** orchestrates batch jobs.
+- **PostgreSQL** stores Airflow, Nessie, and source metadata.
+- **Superset** provides dashboards and reporting.
+### Practical Data Flow Examples
 
-## Haradan Başlamaq Lazımdır?
+**Application 1: Delivery Operations (Default Stream Pipeline)**
 
-Əgər layihəni ilk dəfə açırsansa, bu ardıcıllıqla get:
+```text
+delivery-events -> Flink DataStream -> delivery.*
+```
 
-1. Repo root folder-də olduğunu yoxla.
-2. `.env.example` faylından `.env` yarat.
-3. Docker Compose config-i validate et.
-4. Platformanı qaldır.
-5. Servislərin health vəziyyətinə bax.
-6. Flink stream job-u submit et.
-7. Synthetic data yarat.
-8. ClickHouse-da stream nəticələrini yoxla.
-9. Spark batch KPI job-u işlət.
-10. Superset BI-as-code obyektlərini import et.
-11. Superset-də report view-ları dashboard üçün istifadə et.
+Example flow:
+1. A delivery event is created by the producer: `VEHICLE_DEPARTED`.
+2. The event is published to the `delivery-events` Kafka topic.
+3. Kafka stores the event and Flink consumes it.
+4. Flink processes the event, validates the schema contract, and updates `delivery.delivery_current_state` in ClickHouse.
+5. Superset queries ClickHouse to display the latest active delivery status on the dashboard.
 
-Əsas command axını:
+**Application 2: Fleet Telemetry (Multi-Application Stream Pipeline)**
+
+```text
+vehicle-telemetry-events -> Flink SQL -> fleet.*
+```
+
+Example flow:
+1. A telemetry event is created by the Fleet producer: `{"vehicle_id": "TRK-101", "speed_kmh": 88.5, "engine_temp_c": 98.2}`.
+2. The event is published to the `vehicle-telemetry-events` Kafka topic.
+3. Flink SQL consumes the event, assigns event-time watermarks, computes 5-minute aggregations, and evaluates health alert conditions.
+4. Flink writes the current state to `fleet.vehicle_current_state` and alerts to `fleet.vehicle_health_alerts` in ClickHouse.
+
+## Getting Started
+
+If you are opening the project for the first time, follow this sequence:
+
+1. Confirm that you are in the repository root.
+2. Create `.env` from `.env.example`.
+3. Validate the Docker Compose configuration.
+4. Start the platform.
+5. Check service health.
+6. Submit the Flink stream job.
+7. Generate synthetic data.
+8. Verify stream results in ClickHouse.
+9. Run the Spark batch KPI job.
+10. Import the Superset BI-as-code objects.
+11. Use the Superset report views in the dashboard.
+
+Primary command flow:
 
 ```powershell
 Copy-Item .env.example .env
@@ -91,7 +129,7 @@ make import-superset-assets
 make console
 ```
 
-## Arxitektura Diaqramı
+## Architecture Diagram
 
 ```mermaid
 flowchart LR
@@ -239,15 +277,15 @@ flowchart TB
 
 ## Prerequisites
 
-Lokal işlətmək üçün lazımdır:
+Local operation requires:
 
 - Docker Desktop
 - Docker Compose v2
 - `make`
 - Git
-- Kifayət qədər RAM və disk
+- Sufficient RAM and disk space
 
-Port conflict olarsa `.env` içində portları dəyişmək olar. Ən çox konflikt yaradan portlar:
+If a port conflict occurs, change the ports in `.env`. The ports most likely to conflict are:
 
 - `AIRFLOW_WEB_PORT=8080`
 - `FLINK_UI_PORT=8081`
@@ -257,57 +295,57 @@ Port conflict olarsa `.env` içində portları dəyişmək olar. Ən çox konfli
 - `POSTGRES_AIRFLOW_PORT=15432`
 - `POSTGRES_SOURCE_PORT=15433`
 
-## Addım 1: Environment Faylını Hazırla
+## Step 1: Prepare the Environment File
 
-İlk dəfə başlamazdan əvvəl:
+Before the first startup:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-`.env` faylı Docker Compose üçün bütün local config-ləri saxlayır:
+The `.env` file stores all local Docker Compose configuration:
 
-- image adları
-- portlar
-- database adları
-- local user/password dəyərləri
-- Kafka topic adı
-- producer parametrləri
-- Superset parametrləri
+- image names
+- ports
+- database names
+- local user/password values
+- Kafka topic name
+- producer parameters
+- Superset parameters
 
-`.env` git-ə commit edilməməlidir.
+Do not commit `.env` to Git.
 
-## Addım 2: Compose Config-i Validate Et
+## Step 2: Validate the Compose Configuration
 
-Platformanı qaldırmazdan əvvəl:
+Before starting the platform:
 
 ```powershell
 make config
 ```
 
-Bu command əslində bunu işlədir:
+This command runs:
 
 ```text
 docker compose config
 ```
 
-Nə üçün lazımdır:
+This checks that:
 
-- `.env` dəyərləri düzgün oxunurmu?
-- `docker-compose.yml` sintaksisi doğrudurmu?
-- volume, port, service və environment mapping-lərində səhv varmı?
+- `.env` values are read correctly.
+- `docker-compose.yml` has valid syntax.
+- volume, port, service, and environment mappings are valid.
 
-Əgər burada error varsa, `make up` etməzdən əvvəl düzəltmək lazımdır.
+If this reports an error, fix it before running `make up`.
 
-## Addım 3: Platformanı Qaldır
+## Step 3: Start the Platform
 
-Əsas start command:
+Primary start command:
 
 ```powershell
 make up
 ```
 
-Bu command aşağıdakı servisləri build və start edir:
+This command builds and starts the following services:
 
 - `postgres-airflow`
 - `postgres-source`
@@ -327,9 +365,9 @@ Bu command aşağıdakı servisləri build və start edir:
 - `flink-jobmanager`
 - `flink-taskmanager`
 
-İlk start zamanı image build və pull səbəbindən proses uzun çəkə bilər.
+The first startup may take longer because images must be built and pulled.
 
-## Addım 4: Servis Statusuna Bax
+## Step 4: Check Service Status
 
 Container status:
 
@@ -337,13 +375,13 @@ Container status:
 make ps
 ```
 
-və ya:
+or:
 
 ```powershell
 make status
 ```
 
-Bu command `docker compose ps` işlədir.
+This command runs `docker compose ps`.
 
 Health check:
 
@@ -351,7 +389,7 @@ Health check:
 make health
 ```
 
-Bu command one-shot `platform-tools` container-i içindən `scripts/health_check.py` scriptini işlədir və əsas servisləri yoxlayır. Producer application image-i health, ClickHouse və Superset dependency-ləri daşımır:
+This command runs `scripts/health_check.py` inside the one-shot `platform-tools` container and checks the main services. The producer application image does not include health-check, ClickHouse, or Superset dependencies:
 
 - Kafka
 - PostgreSQL
@@ -363,21 +401,21 @@ Bu command one-shot `platform-tools` container-i içindən `scripts/health_check
 - Flink
 - Airflow
 
-## Addım 5: URL-ləri Götür
+## Step 5: Get the URLs
 
-Bütün endpoint-ləri görmək üçün:
+To view all endpoints:
 
 ```powershell
 make console
 ```
 
-Yalnız browser URL-ləri üçün:
+For browser URLs only:
 
 ```powershell
 make urls
 ```
 
-Əsas URL-lər:
+Primary URLs:
 
 ```text
 Kafka UI:      http://localhost:8083
@@ -398,7 +436,7 @@ Airflow:  admin / admin
 Superset: admin / admin
 ```
 
-## Addım 6: Stream Pipeline-ı İşlət
+## Step 6: Run the Stream Pipeline
 
 Stream pipeline:
 
@@ -413,35 +451,35 @@ sequenceDiagram
     participant F as Flink
     participant C as ClickHouse
 
-    P->>K: delivery event publish edilir
-    K->>F: Flink event consume edir
-    F->>F: JSON parse və schema validation
-    F->>C: delivery_events yazılır
-    F->>C: delivery_current_state yazılır
-    F->>C: vehicle_current_state yazılır
+    P->>K: Publish delivery event
+    K->>F: Flink consumes event
+    F->>F: Parse JSON and validate schema
+    F->>C: Write delivery_events
+    F->>C: Write delivery_current_state
+    F->>C: Write vehicle_current_state
 ```
 
-Əvvəl Flink job-u submit et:
+Submit the Flink job first:
 
 ```powershell
 make submit-flink-job
 ```
 
-Sonra data yarat:
+Then generate data:
 
 ```powershell
 make produce
 ```
 
-`make produce` default olaraq həm batch source data yaradır, həm də Kafka stream event-ləri publish edir.
+By default, `make produce` creates batch source data and publishes Kafka stream events.
 
-Yalnız stream event yaratmaq istəyirsənsə:
+To generate stream events only:
 
 ```powershell
 make produce-stream
 ```
 
-Nəticəni ClickHouse-da yoxlamaq:
+To verify the result in ClickHouse:
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_events"
@@ -449,17 +487,17 @@ docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM de
 docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.vehicle_current_state"
 ```
 
-## Addım 7: Batch Source Data Yarat
+## Step 7: Generate Batch Source Data
 
-PostgreSQL source cədvəllərini ayrıca seed etmək üçün:
+To seed the PostgreSQL source tables separately:
 
 ```powershell
 make seed-batch-source
 ```
 
-Bu command `PRODUCER_MODE=batch` ilə generator app-i işlədir.
+This command runs the generator application with `PRODUCER_MODE=batch`.
 
-PostgreSQL source cədvəllərinə baxmaq:
+To inspect the PostgreSQL source tables:
 
 ```powershell
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "\dt"
@@ -471,34 +509,34 @@ Order sample:
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "SELECT order_id, customer_region, service_level, priority, package_count, order_value FROM customer_orders LIMIT 10;"
 ```
 
-Bu cədvəllər haqqında geniş izah:
+For a detailed explanation of these tables:
 
 ```text
 docs/postgres-source-tables.md
 ```
 
-## Addım 8: Iceberg Connectivity Test Et
+## Step 8: Test Iceberg Connectivity
 
-Spark, Nessie, Iceberg və MinIO birlikdə düzgün işləyirmi yoxlamaq üçün:
+To verify that Spark, Nessie, Iceberg, and MinIO work together:
 
 ```powershell
 make spark-iceberg-test
 ```
 
-Uğurlu nəticədə gözlənən marker:
+Expected marker on success:
 
 ```text
 ICEBERG_SMOKE_TEST_OK
 ```
 
-Bu test nəyi yoxlayır:
+This test verifies that:
 
-- Spark session açılır.
-- Nessie catalog-a qoşulur.
-- Iceberg namespace/table əməliyyatları işləyir.
-- MinIO warehouse path istifadə olunur.
+- A Spark session opens.
+- The Nessie catalog can be reached.
+- Iceberg namespace/table operations work.
+- The MinIO warehouse path is used.
 
-## Addım 9: Batch KPI Job İşlət
+## Step 9: Run the Batch KPI Job
 
 Daily KPI job:
 
@@ -506,7 +544,7 @@ Daily KPI job:
 make spark-daily-kpi
 ```
 
-Bu command `spark-master` container içində `spark-submit` işlədir. Bu ona görə belə qurulub ki, Spark job Spark image-in öz classpath-i, `spark-defaults.conf` faylı və `/opt/deliveryflow/src/etl/apps/` içindəki app faylları ilə işləsin.
+This command runs `spark-submit` inside the `spark-master` container. It is structured this way so the Spark job uses the Spark image classpath, `spark-defaults.conf`, and the application files under `/opt/deliveryflow/src/etl/apps/`.
 
 ```text
 /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
@@ -523,29 +561,29 @@ sequenceDiagram
     participant M as MinIO
     participant BI as Superset
 
-    S->>C: delivery.delivery_events oxuyur
-    S->>S: KPI hesablayır
-    S->>I: bronze.raw_delivery_events yazır
-    S->>I: gold.daily_delivery_kpi yazır
-    I->>N: table metadata commit
-    I->>M: data və metadata files
-    S->>C: delivery.daily_delivery_kpi publish edir
-    BI->>C: dashboard data oxuyur
+    S->>C: Read delivery.delivery_events
+    S->>S: Calculate KPIs
+    S->>I: Write bronze.raw_delivery_events
+    S->>I: Write gold.daily_delivery_kpi
+    I->>N: Commit table metadata
+    I->>M: Store data and metadata files
+    S->>C: Publish delivery.daily_delivery_kpi
+    BI->>C: Read dashboard data
 ```
 
-Uğurlu nəticədə gözlənən marker:
+Expected marker on success:
 
 ```text
 DAILY_KPI_JOB_OK
 ```
 
-KPI nəticəsini yoxlamaq:
+To verify KPI results:
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SELECT * FROM delivery.daily_delivery_kpi LIMIT 10"
 ```
 
-## Addım 10: Superset Dashboard Üçün Data Mənbələri
+## Step 10: Data Sources for the Superset Dashboard
 
 Superset URL:
 
@@ -559,24 +597,24 @@ ClickHouse connection URI:
 clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
 ```
 
-Superset obyektlərini BI-as-code kimi import etmək:
+Import Superset objects as BI-as-code:
 
 ```powershell
 make import-superset-assets
 ```
 
-Bu command `configs/superset/deliveryflow_bi.yaml` faylından database, dataset, chart və dashboard obyektlərini Superset REST API vasitəsilə yaradır və ya yeniləyir.
+This command creates or updates database, dataset, chart, and dashboard objects through the Superset REST API using `configs/superset/deliveryflow_bi.yaml`.
 
-Bu import nəticəsində Superset UI-da əl ilə dashboard qurmaq lazım deyil. Importer aşağıdakıları idarə edir:
+This import means the dashboard does not need to be created manually in the Superset UI. The importer manages:
 
 - `DeliveryFlow ClickHouse` database connection.
-- 5 ClickHouse view-u əsasında 5 dataset.
-- 5 statistik chart.
-- `DeliveryFlow Operations Dashboard` dashboard-u.
-- Chart metric-ləri üçün adhoc metric formatı. Məsələn `event_count` column-u chart içində `SUM(event_count)` kimi, `delay_rate` isə `AVG(delay_rate)` kimi yazılır.
-- Timeseries chart-lar üçün datetime metadata. `Hourly Delivery Event Volume` chart-ında `event_hour` həm dataset temporal column-u, həm də chart `x_axis` / `granularity_sqla` dəyəridir.
+- Five datasets based on five ClickHouse views.
+- Five statistical charts.
+- The `DeliveryFlow Operations Dashboard` dashboard.
+- Adhoc metric formatting for chart metrics. For example, the `event_count` column is written as `SUM(event_count)` and `delay_rate` as `AVG(delay_rate)` in the chart.
+- Datetime metadata for timeseries charts. In the `Hourly Delivery Event Volume` chart, `event_hour` is both the dataset temporal column and the chart `x_axis` / `granularity_sqla` value.
 
-Dashboard üçün hazır view-lar:
+Prepared views for the dashboard:
 
 - `delivery.v_delivery_status_overview`
 - `delivery.v_delay_by_region`
@@ -584,44 +622,44 @@ Dashboard üçün hazır view-lar:
 - `delivery.v_warehouse_daily_kpi`
 - `delivery.v_delivery_event_volume`
 
-View-ları yoxlamaq:
+To verify the views:
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
 ```
 
-Report və chart izahları:
+Report and chart details:
 
 ```text
 docs/superset-serving.md
 ```
 
-## Addım 11: End-to-End Smoke Test
+## Step 11: End-to-End Smoke Test
 
-Stream path üçün smoke test:
+Smoke test for the stream path:
 
 ```powershell
 make test-e2e
 ```
 
-Bu command:
+This command:
 
-- producer ilə synthetic event yaradır
-- ClickHouse-da `delivery_events` row gözləyir
-- `delivery_current_state` row gözləyir
-- stream path-in işlədiyini təsdiqləyir
+- creates a synthetic event with the producer
+- waits for a `delivery_events` row in ClickHouse
+- waits for a `delivery_current_state` row
+- confirms that the stream path works
 
-Gözlənən marker:
+Expected marker:
 
 ```text
 STREAMING_E2E_OK
 ```
 
-## Make Komandalarının Praktik İstifadəsi
+## Practical Make Command Usage
 
 ### `make help`
 
-Layihədə mövcud make command-larını göstərir.
+Shows the available Make commands in the project.
 
 ```powershell
 make help
@@ -629,7 +667,7 @@ make help
 
 ### `make config`
 
-Docker Compose config-i validate edir. `.env` və `docker-compose.yml` dəyişəndən sonra işlət.
+Validates the Docker Compose configuration. Run it after changing `.env` or `docker-compose.yml`.
 
 ```powershell
 make config
@@ -637,7 +675,7 @@ make config
 
 ### `make pull`
 
-Pinned upstream image-ləri pull edir. İlk setup və ya image cache köhnə olanda faydalıdır.
+Pulls pinned upstream images. Useful during initial setup or when the image cache is outdated.
 
 ```powershell
 make pull
@@ -645,7 +683,7 @@ make pull
 
 ### `make build`
 
-Local image-ləri build edir: Spark, Airflow, Flink, minimal Producer, one-shot Platform Tooling və Superset.
+Builds local images: Spark, Airflow, Flink, the minimal Producer, one-shot Platform Tooling, and Superset.
 
 ```powershell
 make build
@@ -653,17 +691,17 @@ make build
 
 ### `make up`
 
-Full local platformanı başladır.
+Starts the full local platform.
 
 ```powershell
 make up
 ```
 
-Bu command core servislərlə birlikdə `producer-continuous` servisini də başladır. Həmin servis Kafka-ya default olaraq hər 60 saniyədə 10 stream event göndərir.
+This command also starts the `producer-continuous` service with the core services. By default, that service sends 10 stream events to Kafka every 60 seconds.
 
-### `make ps` və `make status`
+### `make ps` and `make status`
 
-Container-lərin statusunu göstərir.
+Shows container status.
 
 ```powershell
 make ps
@@ -672,15 +710,15 @@ make status
 
 ### `make health`
 
-Əsas servislərin readiness vəziyyətini yoxlayır.
+Checks readiness for the main services.
 
 ```powershell
 make health
 ```
 
-### `make console` və `make urls`
+### `make console` and `make urls`
 
-Servis endpoint-lərini göstərir.
+Shows service endpoints.
 
 ```powershell
 make console
@@ -689,7 +727,7 @@ make urls
 
 ### `make submit-flink-job`
 
-Flink streaming job-u submit edir. Kafka event-ləri generate etməzdən əvvəl işlətmək lazımdır.
+Submits the Flink streaming job. Run it before generating Kafka events.
 
 ```powershell
 make submit-flink-job
@@ -697,7 +735,7 @@ make submit-flink-job
 
 ### `make produce`
 
-Default generator mode ilə həm PostgreSQL batch source row-ları yaradır, həm də Kafka stream event-ləri publish edir.
+In the default generator mode, creates PostgreSQL batch source rows and publishes Kafka stream events.
 
 ```powershell
 make produce
@@ -705,7 +743,7 @@ make produce
 
 ### `make produce-stream`
 
-Yalnız Kafka stream event-ləri yaradır.
+Generates Kafka stream events only.
 
 ```powershell
 make produce-stream
@@ -713,13 +751,13 @@ make produce-stream
 
 ### `make produce-continuous`
 
-Background `producer-continuous` servisini basladir. Bu servis `PRODUCER_MODE=stream` ve `PRODUCER_CONTINUOUS=true` ile isleyir, default olaraq Kafka-ya her 60 saniyede 10 delivery event batch-i gonderir.
+Starts the background `producer-continuous` service. It runs with `PRODUCER_MODE=stream` and `PRODUCER_CONTINUOUS=true`, and by default sends a batch of 10 delivery events to Kafka every 60 seconds.
 
 ```powershell
 make produce-continuous
 ```
 
-Interval `.env` içində dəyişdirilir:
+Change the interval in `.env`:
 
 ```text
 PRODUCER_CONTINUOUS_INTERVAL_SECONDS=60
@@ -727,12 +765,13 @@ PRODUCER_EVENTS_PER_INTERVAL=10
 ```
 
 Log-lara baxmaq:
+View the logs:
 
 ```powershell
 make logs-producer-continuous
 ```
 
-Dayandırmaq:
+To stop it:
 
 ```powershell
 make stop-continuous-producer
@@ -740,7 +779,7 @@ make stop-continuous-producer
 
 ### `make seed-batch-source`
 
-Yalnız PostgreSQL source cədvəllərini seed edir.
+Seeds only the PostgreSQL source tables.
 
 ```powershell
 make seed-batch-source
@@ -748,7 +787,7 @@ make seed-batch-source
 
 ### `make spark-iceberg-test`
 
-Spark, Iceberg, Nessie və MinIO bağlantısını smoke test edir.
+Runs a smoke test for Spark, Iceberg, Nessie, and MinIO connectivity.
 
 ```powershell
 make spark-iceberg-test
@@ -756,7 +795,7 @@ make spark-iceberg-test
 
 ### `make spark-daily-kpi`
 
-Daily KPI batch job-u işlədir. ClickHouse-da `delivery_events` data-sı olduqdan sonra işlət.
+Runs the daily KPI batch job. Run it after ClickHouse contains `delivery_events` data.
 
 ```powershell
 make spark-daily-kpi
@@ -764,13 +803,13 @@ make spark-daily-kpi
 
 ### `make import-superset-assets`
 
-Superset obyektlərini repo-dakı YAML faylından yaradır və ya yeniləyir.
+Creates or updates Superset objects from the repository YAML file.
 
 ```powershell
 make import-superset-assets
 ```
 
-Bu Makefile target əvvəl `superset-importer` image-ini yeniləyir, sonra Docker Compose service-i işlədir:
+This Makefile target first rebuilds the `superset-importer` image, then runs the Docker Compose service:
 
 ```text
 docker compose build superset-importer
@@ -783,17 +822,17 @@ YAML source of truth:
 configs/superset/deliveryflow_bi.yaml
 ```
 
-Import nəticəsində `DeliveryFlow ClickHouse` database connection, 5 dataset, 5 chart və `DeliveryFlow Operations Dashboard` dashboard-u Superset-də hazır olur.
+The import creates the `DeliveryFlow ClickHouse` database connection, five datasets, five charts, and the `DeliveryFlow Operations Dashboard` in Superset.
 
-Importer Superset chart parametrlərini də normallaşdırır:
+The importer also normalizes Superset chart parameters:
 
-- YAML-də oxunaqlı saxlanılan metric adları Superset adhoc metric formatına çevrilir.
-- Count/sum tipli column-lar üçün `SUM(...)` istifadə olunur.
-- `avg_` prefix-li və `_rate` suffix-li column-lar üçün `AVG(...)` istifadə olunur.
-- `event_hour` və `business_date` kimi zaman column-ları dataset metadata-da temporal column kimi qeyd olunur.
-- `Hourly Delivery Event Volume` üçün `x_axis: event_hour`, `granularity_sqla: event_hour`, `time_grain_sqla: PT1H` yazılır.
+- Human-readable metric names stored in YAML are converted to Superset adhoc metric format.
+- `SUM(...)` is used for count and sum columns.
+- `AVG(...)` is used for columns with an `avg_` prefix or `_rate` suffix.
+- Time columns such as `event_hour` and `business_date` are recorded as temporal columns in dataset metadata.
+- `Hourly Delivery Event Volume` uses `x_axis: event_hour`, `granularity_sqla: event_hour`, and `time_grain_sqla: PT1H`.
 
-Bu davranış aşağıdakı Superset xətalarının qarşısını alır:
+This behavior prevents the following Superset errors:
 
 ```text
 Metric 'event_count' does not exist
@@ -803,7 +842,7 @@ Datetime column not provided as part table configuration and is required by this
 
 ### `make airflow-dag-list`
 
-Airflow daxilində DAG siyahısını göstərir.
+Shows the DAG list in Airflow.
 
 ```powershell
 make airflow-dag-list
@@ -811,17 +850,17 @@ make airflow-dag-list
 
 ### `make test-e2e`
 
-Stream path üçün end-to-end smoke test edir.
+Runs an end-to-end smoke test for the stream path.
 
-Test `platform-tools` image-də işləyir; producer application image-i yalnız event generation və PostgreSQL batch seed dependency-lərini saxlayır.
+The test runs in the `platform-tools` image; the producer application image contains only event-generation and PostgreSQL batch-seeding dependencies.
 
 ```powershell
 make test-e2e
 ```
 
-### Log Command-ları
+### Log Commands
 
-Servis log-larını izləmək üçün:
+To follow service logs:
 
 ```powershell
 make logs
@@ -839,7 +878,7 @@ make logs-nessie
 
 ### `make down`
 
-Container-ləri stop edir, amma named volume-ları saxlayır.
+Stops containers but keeps named volumes.
 
 ```powershell
 make down
@@ -847,7 +886,7 @@ make down
 
 ### `make clean`
 
-Container-ləri və orphan container-ləri silir, amma named volume-ları saxlayır.
+Removes containers and orphan containers but keeps named volumes.
 
 ```powershell
 make clean
@@ -855,7 +894,7 @@ make clean
 
 ### `make clean-keep-images`
 
-Container-ləri və orphan container-ləri silir, amma named volume-ları və Docker image-ləri saxlayır.
+Removes containers and orphan containers but keeps named volumes and Docker images.
 
 ```powershell
 make clean-keep-images
@@ -863,22 +902,26 @@ make clean-keep-images
 
 ### `make purge`
 
-Destructive cleanup edir:
+Performs destructive cleanup:
 
 - container-ləri silir
 - named volume-ları silir
 - local project image-ləri silir
 - orphan container-ləri silir
+- Removes containers
+- Removes named volumes
+- Removes local project images
+- Removes orphan containers
 
 ```powershell
 make purge
 ```
 
-Diqqət: `make purge` lokal data-nı silir.
+Warning: `make purge` removes local data.
 
-## Tövsiyə Edilən Tam Demo Ardıcıllığı
+## Recommended Full Demo Sequence
 
-Sıfırdan demo üçün:
+For a demo from scratch:
 
 ```powershell
 Copy-Item .env.example .env
@@ -894,7 +937,7 @@ make import-superset-assets
 make console
 ```
 
-Sonra browser-də aç:
+Then open these in a browser:
 
 - Kafka UI: `http://localhost:8083`
 - Flink UI: `http://localhost:8081`
@@ -903,75 +946,146 @@ Sonra browser-də aç:
 - Superset UI: `http://localhost:8088`
 
 ## Debug Workflow
+## Troubleshooting Guide
 
-Əgər data ClickHouse-a gəlmirsə:
+If data does not reach ClickHouse:
+### Issue 1: Events Do Not Reach ClickHouse
 
-1. Kafka log-larına bax:
+1. Check the Kafka logs:
+**Problem:**
+Events are produced, but `delivery.delivery_events` in ClickHouse remains empty.
 
+**Possible Cause:**
+The Flink streaming job is not running, or Kafka consumer connectivity failed.
+
+**How to Check:**
+Check Kafka and Flink job manager logs:
 ```powershell
 make logs-kafka
-```
-
-2. Flink job log-larına bax:
-
-```powershell
 make logs-flink
 ```
 
-3. Stream event yarat:
+2. Check the Flink job logs:
 
+Inspect ClickHouse row count:
 ```powershell
-make produce-stream
-```
-
-4. ClickHouse row count yoxla:
-
-```powershell
+make logs-flink
 docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_events"
 ```
 
-Əgər Superset view-ları görünmürsə:
+3. Generate a stream event:
 
+**How to Fix:**
+Submit the Flink streaming job and send test stream events:
+```powershell
+make submit-flink-job
+make produce-stream
+```
+
+4. Check the ClickHouse row count:
+**Expected Result:**
+ClickHouse returns a positive row count in `delivery.delivery_events`.
+
+### Issue 2: Fleet Telemetry Does Not Appear in ClickHouse
+
+**Problem:**
+Telemetry events for `APP=fleet` do not appear in `fleet.vehicle_telemetry_events`.
+
+**Possible Cause:**
+The `VehicleTelemetrySqlJob` Flink SQL application was not submitted.
+
+**How to Check:**
+Check Flink running jobs in the Flink Web UI (`http://localhost:8081`) or logs:
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM delivery.delivery_events"
+make logs-flink
+```
+
+If Superset views are missing:
+**How to Fix:**
+Submit the Fleet Flink SQL job and trigger fleet data generation:
+```powershell
+make submit-flink-job APP=fleet
+make produce APP=fleet
+```
+
+**Expected Result:**
+Rows appear in `fleet.vehicle_telemetry_events` and `fleet.vehicle_current_state`.
+
+### Issue 3: Superset Views or Metrics Return Errors
+
+**Problem:**
+Superset dashboard charts display metric errors, missing datasets, or column type mismatches.
+
+**Possible Cause:**
+Superset metadata assets are out of sync with ClickHouse serving tables.
+
+**How to Check:**
+List existing serving tables in ClickHouse:
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
 ```
 
-Əgər dashboard var, amma chart-lar metric və ya datetime xətası verirsə:
+If the dashboard exists but charts report metric or datetime errors:
 
+**How to Fix:**
+Re-import the BI-as-code configuration assets:
 ```powershell
 make import-superset-assets
 ```
+Then hard-refresh your browser tab (`Ctrl + F5`).
 
-Sonra dashboard səhifəsini hard refresh et:
+Then hard-refresh the dashboard page:
+**Expected Result:**
+All 5 delivery charts render without errors on the Superset dashboard (`http://localhost:8088`).
 
 ```text
 Ctrl + F5
 ```
+### Issue 4: Schema Mismatch from Stale Docker Volumes
 
-Əgər yeni schema görünmürsə, köhnə volume qalır. Lokal data-nı silmək qəbul edilirsə:
+If the new schema is missing, an old volume remains. If deleting local data is acceptable:
+**Problem:**
+ClickHouse or PostgreSQL container startup fails or retains outdated table definitions.
 
+**Possible Cause:**
+Named Docker volumes from previous runs contain old schema state.
+
+**How to Check:**
+Inspect volume definitions and container errors:
+```powershell
+docker compose ps
+make logs-all
+```
+
+**How to Fix:**
+Purge stale containers and volumes, then recreate the platform:
 ```powershell
 make purge
 make up
+make health
 ```
 
-## Əlavə Sənədlər
+**Expected Result:**
+Clean initialization scripts execute on first boot, and all tables match current schema contracts.
 
-Daha dərin oxumaq üçün:
+## Additional Documentation
 
-- `docs/application-workflow.md`: app, generator, stream və batch workflow.
-- `docs/postgres-source-tables.md`: PostgreSQL source cədvəlləri və inspect command-ları.
-- `docs/superset-serving.md`: Superset dashboard strategy və 5 report.
-- `docs/architecture-decisions.md`: servis seçimləri və ADR-lər.
-- `requirement.md`: ümumi requirement.
-- `plan.md`: layihə planı.
+For deeper reading:
 
-## Vacib Qeydlər
+- `docs/application-workflow.md`: application, generator, stream, and batch workflow.
+- `docs/postgres-source-tables.md`: PostgreSQL source tables and inspection commands.
+- `docs/superset-serving.md`: Superset dashboard strategy and five reports.
+- `docs/architecture-decisions.md`: service choices and ADRs.
+- `requirement.md`: overall requirements.
+- `plan.md`: project plan.
 
-- Streaming üçün Flink job əvvəl submit edilməlidir, sonra event generate etmək daha düzgündür.
-- Batch KPI üçün ClickHouse-da `delivery_events` data-sı olmalıdır.
-- Superset üçün approved data source ClickHouse-dur.
-- Kafka analytical database deyil, event transport qatıdır.
-- Iceberg/Nessie/MinIO analytical lakehouse qatıdır.
-- `make clean` data volume-ları silmir.
-- `make purge` data volume-ları silir.
+## Important Notes
+
+- Submit the Flink job before generating streaming events.
+- ClickHouse must contain `delivery_events` data before running batch KPIs.
+- ClickHouse is the approved data source for Superset.
+- Kafka is an event transport layer, not an analytical database.
+- Iceberg/Nessie/MinIO provide the analytical lakehouse layer.
+- `make clean` does not remove data volumes.
+- `make purge` removes data volumes.

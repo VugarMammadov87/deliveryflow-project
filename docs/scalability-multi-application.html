@@ -1,0 +1,953 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeliveryFlow Scalability and Multi-Application Architecture | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="assets/css/documentation.css">
+    <script src="assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+        <h1>DeliveryFlow Scalability and Multi-Application Architecture</h1>
+        <p>Converted from docs/scalability-multi-application.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#deliveryflow-scalability-and-multi-application-architecture">DeliveryFlow Scalability and Multi-Application Architecture</a>
+<a href="#current-repository-state">Current Repository State</a>
+<a href="#scale-risks-in-the-current-baseline">Scale Risks in the Current Baseline</a>
+<a href="#one-custom-file-per-table">One Custom File Per Table</a>
+<a href="#one-flink-job-per-table">One Flink Job Per Table</a>
+<a href="#one-spark-job-per-table">One Spark Job Per Table</a>
+<a href="#one-airflow-dag-per-table">One Airflow DAG Per Table</a>
+<a href="#one-kafka-topic-per-table">One Kafka Topic Per Table</a>
+<a href="#one-superset-yaml-for-everything">One Superset YAML for Everything</a>
+<a href="#control-plane-and-data-plane">Control Plane and Data Plane</a>
+<a href="#target-metadata-model">Target Metadata Model</a>
+<a href="#repository-architecture">Repository Architecture</a>
+<a href="#application-registry">Application Registry</a>
+<a href="#dataset-registry">Dataset Registry</a>
+<a href="#kafka-architecture">Kafka Architecture</a>
+<a href="#schema-registry-decision">Schema Registry Decision</a>
+<a href="#flink-architecture">Flink Architecture</a>
+<a href="#spark-and-batch-architecture">Spark and Batch Architecture</a>
+<a href="#airflow-architecture">Airflow Architecture</a>
+<a href="#iceberg-minio-and-nessie">Iceberg, MinIO, and Nessie</a>
+<a href="#postgresql-separation">PostgreSQL Separation</a>
+<a href="#clickhouse-architecture">ClickHouse Architecture</a>
+<a href="#superset-architecture">Superset Architecture</a>
+<a href="#observability-and-operations">Observability and Operations</a></aside>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scalability &amp; Multi-Application Architecture | DeliveryFlow Docs</title>
+  <meta name="description" content="Blueprint for scaling DeliveryFlow to 300-500 tables via metadata-driven control plane, contract governance, and lakehouse isolation.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Scalability</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html" class="active">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h2 id="deliveryflow-scalability-and-multi-application-architecture">DeliveryFlow Scalability and Multi-Application Architecture</h2>
+<p>This document answers the requirements in <code>DeliveryFlow_Scalability_and_Flink_SQL_Prompts.md</code> and records the target design used by the current repository. The goal is not to make the local Docker Compose lab prematurely distributed. The goal is to keep DeliveryFlow from growing into one custom Python file, one custom Spark job, one custom Airflow DAG, one Flink job, one Kafka topic, and one dashboard file per table.</p>
+<p>The target rule is:</p>
+<pre><code>
+More applications or tables should mostly mean:
+more metadata
+more contracts
+more compute/storage capacity
+        <h1>Scalability &amp; Multi-Application Architecture</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          A metadata-driven architectural blueprint designed to scale DeliveryFlow from a local lab to 300&ndash;500 tables without duplicating DAGs, scripts, streaming jobs, or dashboard definitions.
+        </p>
+
+It should not mostly mean:
+more duplicated code
+more copied DAGs
+more hardcoded table names
+more manual deployment steps
+</code></pre>
+<h3 id="current-repository-state">Current Repository State</h3>
+<p>DeliveryFlow currently has two streaming applications:</p>
+<pre><code>
+delivery
+  Producer -&gt; Kafka delivery-events -&gt; DeliveryStreamingJob -&gt; ClickHouse delivery.* -&gt; Superset
+        <div class="callout callout--info">
+          <div class="callout__title">The Golden Scalability Axiom</div>
+          <p>
+            Adding new applications or datasets should primarily mean <strong>more metadata</strong>, <strong>more contracts</strong>, and <strong>more compute/storage capacity</strong>. It must <strong>never</strong> mean more copy-pasted DAGs, duplicated ETL scripts, hardcoded table names, or manual deployment ceremonies.
+          </p>
+        </div>
+
+fleet
+  Producer APP=fleet -&gt; Kafka vehicle-telemetry-events -&gt; VehicleTelemetrySqlJob -&gt; ClickHouse fleet.*
+</code></pre>
+<p>Important repository assets:</p>
+<pre><code>
+configs/applications/delivery.yaml
+configs/applications/fleet.yaml
+configs/datasets/fleet/vehicle_telemetry.yaml
+src/contracts/delivery/delivery_event_v1.schema.json
+src/contracts/fleet/vehicle_telemetry_v1.schema.json
+src/producers/
+services/flink/src/main/java/local/deliveryflow/DeliveryStreamingJob.java
+services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java
+services/clickhouse/init/001_delivery_schema.sql
+configs/superset/deliveryflow_bi.yaml
+</code></pre>
+<p>The delivery application remains the default operator path:</p>
+<pre><code>
+make submit-flink-job
+make produce
+make test-e2e
+</code></pre>
+<p>The fleet application is selected explicitly:</p>
+<pre><code>
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+</code></pre>
+<h3 id="scale-risks-in-the-current-baseline">Scale Risks in the Current Baseline</h3>
+<h4 id="one-custom-file-per-table">One Custom File Per Table</h4>
+<p>Current design: the project still has a small number of explicit jobs and DDL objects, which is acceptable for a local lab.</p>
+<p>Scale problem: at 300-500 tables, table-specific scripts, DAGs, jobs, and dashboard definitions become the main source of failure. Every onboarding needs code review, deployment, and manual validation.</p>
+<p>Recommended architecture: table behavior should be described in dataset metadata. Shared code should read metadata and execute common ingestion, validation, publishing, and observability patterns.</p>
+<p>Trade-off: metadata-driven design adds a schema for metadata and validation work. It should be introduced first for repeatable ingestion and orchestration, not for complex business transformations.</p>
+<p>When to apply: now for registries and simple ingestion patterns; later for generic CDC and backfill frameworks.</p>
+<h4 id="one-flink-job-per-table">One Flink Job Per Table</h4>
+<p>Current design: there is one delivery DataStream job and one fleet SQL/Table API job.</p>
+<p>Scale problem: 500 always-running jobs would create excessive checkpoint, TaskManager, deployment, monitoring, and ownership overhead.</p>
+<p>Recommended architecture: group streaming jobs by application, domain, or business capability. Use separate jobs when failure blast radius, state size, SLA, ownership, or deployment cadence are meaningfully different.</p>
+<p>Trade-off: grouped jobs need careful routing and state design. Over-grouping creates a giant job; over-splitting creates operations overhead.</p>
+<p>When to apply: keep delivery and fleet separate. For future domains, prefer one job per application capability first, then split only when state or SLA demands it.</p>
+<h4 id="one-spark-job-per-table">One Spark Job Per Table</h4>
+<p>Current design: <code>src/etl/apps/daily_kpi_job.py</code> is a specific KPI batch job.</p>
+<p>Scale problem: hundreds of table-specific Spark apps duplicate source reading, watermark handling, Iceberg writes, ClickHouse publication, retry, and backfill logic.</p>
+<p>Recommended architecture: add a metadata-driven Spark ingestion framework for common full, incremental, CDC, merge/upsert, and publish patterns. Keep complex business transformations as code modules referenced by metadata.</p>
+<p>Trade-off: the first generic Spark runner takes more design effort than another script, but prevents long-term copy/paste.</p>
+<p>When to apply: before the third or fourth similar ingestion job is added.</p>
+<h4 id="one-airflow-dag-per-table">One Airflow DAG Per Table</h4>
+<p>Current design: <code>dags/delivery_daily_kpi.py</code> is a hand-written workflow for the current KPI flow.</p>
+<p>Scale problem: hundreds of DAG files make scheduling, retries, dependency management, and ownership hard to reason about.</p>
+<p>Recommended architecture: use a DAG factory or metadata-driven DAGs by application/domain. Use dynamic task mapping for table lists and Airflow pools for source-system, application, Spark, and ClickHouse limits.</p>
+<p>Trade-off: DAG generation must be deterministic and validated in CI so Airflow parse failures are caught early.</p>
+<p>When to apply: when the platform adds multiple batch datasets with similar schedules.</p>
+<h4 id="one-kafka-topic-per-table">One Kafka Topic Per Table</h4>
+<p>Current design: <code>delivery-events</code> and <code>vehicle-telemetry-events</code> are domain event topics, not table topics.</p>
+<p>Scale problem: one topic per table causes topic and partition explosion, broker metadata overhead, retention sprawl, and noisy consumer group management.</p>
+<p>Recommended architecture: use topics by event domain, entity, event family, or business capability. Do not map every physical table to a topic.</p>
+<p>Trade-off: shared domain topics require clear schemas and routing fields. Too much sharing weakens isolation.</p>
+<p>When to apply: keep the current two topics; add new topics only when ownership, retention, ordering, or failure isolation requires it.</p>
+<h4 id="one-superset-yaml-for-everything">One Superset YAML for Everything</h4>
+<p>Current design: <code>configs/superset/deliveryflow_bi.yaml</code> owns the delivery dashboard.</p>
+<p>Scale problem: 100+ charts in one file becomes hard to review, import, and delegate to application teams.</p>
+<p>Recommended architecture: keep the current delivery file, then introduce <code>configs/superset/&lt;app&gt;/</code> when another BI domain is promoted from serving tables to dashboards.</p>
+<p>Trade-off: modular BI assets need importer discovery and ordering logic.</p>
+<p>When to apply: before adding fleet BI dashboards or a third BI domain.</p>
+<h3 id="control-plane-and-data-plane">Control Plane and Data Plane</h3>
+<p>DeliveryFlow should use a lightweight control-plane model, not a separate control-plane service yet.</p>
+<pre><code>
+CONTROL PLANE
+  Git-versioned metadata
+  Application registry
+  Dataset registry
+  Event contracts
+  Quality rules
+  Ownership and SLA
+  Scheduling and deployment metadata
+        <h2 id="scale-risks">Scale Risks in Monolithic Data Platforms</h2>
+        <p>
+          Typical enterprise data platforms suffer from anti-patterns when scaling from tens to hundreds of tables. The table below details how DeliveryFlow prevents these pitfalls:
+        </p>
+
+DATA PLANE
+  Kafka
+  Flink
+  Spark
+  Airflow
+  Iceberg
+  Nessie
+  MinIO
+  ClickHouse
+  Superset
+</code></pre>
+<p>Current local implementation:</p>
+<pre><code>
+configs/applications/*.yaml       application registry
+configs/datasets/&lt;domain&gt;/*.yaml  dataset registry
+src/contracts/&lt;domain&gt;/*.json     versioned contracts
+Makefile APP=&lt;name&gt;               runtime application selector
+Docker Compose                    local data plane
+</code></pre>
+<p>Recommended metadata storage:</p>
+<ul>
+<li>Git/YAML/JSON is the source of truth for local development, CI review, contracts, ownership, schedules, and static configuration.</li>
+<li>PostgreSQL should be added for runtime control-plane state only when operators need UI/API-driven onboarding, dynamic status, locks, audit trails, or self-service changes.</li>
+<li>A hybrid model is the production target: Git remains the reviewed desired state; PostgreSQL can hold runtime state, execution history, and resolved deployment records.</li>
+</ul>
+<p>Runtime should read metadata through small adapters. Do not make every Java, Python, and DAG component parse ad hoc YAML differently. The future path is a shared metadata loader with validation tests.</p>
+<h3 id="target-metadata-model">Target Metadata Model</h3>
+<p>A production-grade dataset record should cover:</p>
+<pre><code>
+dataset_id: fleet.vehicle_telemetry
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Naive Anti-Pattern</th>
+                <th>Scale Risk at 300+ Tables</th>
+                <th>DeliveryFlow Architecture</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Ingestion &amp; ETL</strong></td>
+                <td>One Python script per table</td>
+                <td>Copy-paste sprawl; fixes must be reapplied hundreds of times</td>
+                <td>Metadata-driven generic runners (<code>src/etl/framework/</code>)</td>
+              </tr>
+              <tr>
+                <td><strong>Streaming</strong></td>
+                <td>One Flink job per table</td>
+                <td>JVM memory explosion, checkpoint storm, TaskManager exhaustion</td>
+                <td>Jobs grouped by application/domain (<code>DeliveryStreamingJob</code>, <code>VehicleTelemetrySqlJob</code>)</td>
+              </tr>
+              <tr>
+                <td><strong>Orchestration</strong></td>
+                <td>One handwritten DAG per table</td>
+                <td>Airflow scheduler parse latency, memory bloat, unmaintainable DAG lists</td>
+                <td>Metadata-driven DAG factory with dynamic task mapping</td>
+              </tr>
+              <tr>
+                <td><strong>Message Bus</strong></td>
+                <td>One Kafka topic per table</td>
+                <td>Broker partition count explosion, partition skew, retention chaos</td>
+                <td>Domain-oriented event topics (<code>delivery-events</code>, <code>vehicle-telemetry-events</code>)</td>
+              </tr>
+              <tr>
+                <td><strong>Lakehouse Storage</strong></td>
+                <td>One S3 bucket per table</td>
+                <td>IAM policy limits, bucket sprawl, catalog synchronization bottlenecks</td>
+                <td>Shared S3 bucket with hierarchical Iceberg namespaces (<code>&lt;app&gt;.&lt;layer&gt;.&lt;dataset&gt;</code>)</td>
+              </tr>
+              <tr>
+                <td><strong>BI Serving</strong></td>
+                <td>One massive monolithic YAML file</td>
+                <td>Merge conflicts, unreadable git diffs, risk of cross-team breakage</td>
+                <td>Modular BI folders (<code>configs/superset/&lt;app&gt;/</code>) discovered by automated importer</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="control-vs-data-plane">Control Plane vs. Data Plane</h2>
+        <p>
+          DeliveryFlow separates the platform into a declarative <strong>Control Plane</strong> and an executable <strong>Data Plane</strong>:
+        </p>
+
+        <div class="diagram-container">
+          <div class="flow-grid">
+            <div class="flow-step">
+              <div class="flow-step__title">Control Plane</div>
+              <div class="flow-step__tech">Git + Metadata YAML</div>
+              <div class="flow-step__desc">Application registry, dataset schemas, contracts, SLAs &amp; quality rules</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Data Plane</div>
+              <div class="flow-step__tech">Distributed Compute &amp; Storage</div>
+              <div class="flow-step__desc">Kafka, Flink, Spark, Iceberg, Nessie, ClickHouse, Airflow &amp; Superset</div>
+            </div>
+          </div>
+          <div class="diagram-caption">Figure 1: Control Plane declares desired state; Data Plane executes transformations.</div>
+        </div>
+
+        <h3>Control Plane File Structure</h3>
+        <p>
+          The repository organizes declarative metadata into clear domains:
+        </p>
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span class="terminal-title">Control Plane Structure</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code>configs/
+  applications/
+    delivery.yaml           # Application ownership, SLAs, and feature flags
+    fleet.yaml              # Fleet telemetry application definition
+  datasets/
+    fleet/
+      vehicle_telemetry.yaml # Dataset schema, watermarks, and target tables
+src/contracts/
+  delivery/
+    delivery_event_v1.schema.json # JSON Schema for delivery events
+  fleet/
+    vehicle_telemetry_v1.schema.json # JSON Schema for vehicle telemetry</code></pre>
+        </div>
+
+        <h2 id="dataset-metadata-spec">Target Dataset Metadata Specification</h2>
+        <p>
+          Onboarding a new table into DeliveryFlow requires only adding a YAML dataset specification into <code>configs/datasets/&lt;domain&gt;/</code>. Here is a production-grade dataset record:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span class="terminal-title">configs/datasets/fleet/vehicle_telemetry.yaml</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code>dataset_id: fleet.vehicle_telemetry
+application: fleet
+domain: fleet-operations
+description: Vehicle telemetry stream used for fleet health monitoring.
+description: Vehicle telemetry stream used for real-time fleet health monitoring.
+
+source:
+  type: kafka
+  topic: vehicle-telemetry-events
+  key: vehicle_id
+
+contract: src/contracts/fleet/vehicle_telemetry_v1.schema.json
+
+ingestion:
+  mode: streaming
+  load_type: append
+  primary_key:
+    - event_id
+  watermark_column: event_timestamp
+  late_arrival_tolerance_seconds: 10
+
+target:
+  layer: serving
+  system: clickhouse
+  database: fleet
+  tables:
+    - vehicle_telemetry_events
+    - vehicle_current_state
+    - vehicle_health_alerts
+    - vehicle_metrics_5m
+
+schedule:
+  type: continuous
+
+quality:
+  not_null:
+    - event_id
+    - event_timestamp
+    - vehicle_id
+  accepted_values:
+    engine_status:
+      - RUNNING
+      - IDLE
+      - OFF
+    engine_status: [RUNNING, IDLE, OFF]
+
+owner:
+  team: logistics-data-platform
+  team: fleet-analytics-engineering
+
+sla:
+  freshness_minutes: 5
+
+retention:
+  raw_days: 30
+
+criticality: medium
+bi:
+  exposed: false
+  future_scope: configs/superset/fleet
+</code></pre>
+<p>For batch datasets, the same model should add:</p>
+<pre><code>
+source:
+  type: postgres
+  connection: logistics_source
+  schema: public
+  table: customer_orders
+criticality: medium</code></pre>
+        </div>
+
+ingestion:
+  mode: incremental
+  load_type: merge
+  primary_key:
+    - order_id
+  watermark_column: updated_at
+        <h2 id="stream-partitioning-strategy">Kafka &amp; Flink Scaling Strategy</h2>
+
+target:
+  layer: bronze
+  system: iceberg
+  namespace: logistics
+  table: customer_orders
+        <h3>Kafka Topic Strategy</h3>
+        <p>
+          Rather than creating one Kafka topic per database table, DeliveryFlow adopts an <strong>event-family topic strategy</strong>:
+        </p>
+        <ul>
+          <li><strong>Domain Topic Isolation:</strong> <code>delivery-events</code> carries delivery order lifecycle states; <code>vehicle-telemetry-events</code> carries IoT vehicle metrics.</li>
+          <li><strong>Partition Keying:</strong> Events are strictly keyed by primary business entities (<code>delivery_id</code>, <code>vehicle_id</code>), ensuring deterministic ordering within partitions while allowing horizontal partition fan-out across consumers.</li>
+          <li><strong>Production Scale-Out:</strong> As volume grows, partition count scales from 3 to 12+ partitions per topic, matched with Flink TaskManager concurrency slots.</li>
+        </ul>
+
+publish:
+  clickhouse:
+    enabled: true
+    database: delivery
+    table: customer_orders_serving
+</code></pre>
+<h3 id="repository-architecture">Repository Architecture</h3>
+<p>The current repository should evolve conservatively:</p>
+<pre><code>
+configs/
+  applications/
+  datasets/
+  superset/
+        <h3>Flink Job Grouping Matrix</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Grouping Strategy</th>
+                <th>Pros</th>
+                <th>Cons</th>
+                <th>DeliveryFlow Verdict</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>One Giant Monolithic Job</strong></td>
+                <td>Single deployment</td>
+                <td>Failure blast radius covers entire company; checkpoint lag</td>
+                <td><span class="service-card__badge service-card__badge--storage" style="background: rgba(239, 68, 68, 0.15); color: #dc2626;">Rejected</span></td>
+              </tr>
+              <tr>
+                <td><strong>One Job Per Table</strong></td>
+                <td>Total isolation</td>
+                <td>Massive memory overhead, thousands of checkpoint threads</td>
+                <td><span class="service-card__badge service-card__badge--storage" style="background: rgba(239, 68, 68, 0.15); color: #dc2626;">Rejected</span></td>
+              </tr>
+              <tr>
+                <td><strong>One Job Per Application / Domain</strong></td>
+                <td>Isolated failure domains, right-sized state, domain ownership</td>
+                <td>Requires domain routing and moderate job management</td>
+                <td><span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Adopted Standard</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+src/
+  contracts/
+  producers/
+  etl/
+    apps/
+    framework/          future shared Spark readers/writers/loaders
+        <h2 id="lakehouse-scaling">Lakehouse Namespace &amp; Maintenance Standard</h2>
+        <p>
+          To maintain high query performance across hundreds of Apache Iceberg tables stored in MinIO:
+        </p>
+
+services/
+  flink/
+  spark/
+  clickhouse/
+  producer/
+  tooling/
+
+dags/
+  generated or factory DAGs in a later phase
+</code></pre>
+<p>Do not move everything into a new <code>platform/</code> and <code>apps/</code> hierarchy at once. The current repo already has service-oriented folders. The next scalable improvement is adding shared <code>src/etl/framework/</code> modules and metadata validators while keeping existing paths stable.</p>
+<p>Shared platform logic:</p>
+<ul>
+<li>Kafka publishing transport.</li>
+<li>Producer config parsing.</li>
+<li>Metadata loading and validation.</li>
+<li>Spark readers and writers.</li>
+<li>Iceberg write helpers.</li>
+<li>ClickHouse publish helpers.</li>
+<li>E2E and health-check utilities.</li>
+<li>Superset importer behavior.</li>
+</ul>
+<p>Application-specific logic:</p>
+<ul>
+<li>Delivery event schema and state rules.</li>
+<li>Fleet telemetry schema and health rules.</li>
+<li>Domain SQL transformations.</li>
+<li>Domain serving tables.</li>
+<li>Domain BI dashboards.</li>
+</ul>
+<h3 id="application-registry">Application Registry</h3>
+<p>Application metadata belongs under <code>configs/applications/</code>.</p>
+<p>Current examples:</p>
+<pre><code>
+configs/applications/delivery.yaml
+configs/applications/fleet.yaml
+</code></pre>
+<p>An application record should answer:</p>
+<ul>
+<li>who owns it;</li>
+<li>whether streaming, batch, serving, and BI are enabled;</li>
+<li>which Flink job or Spark workflow belongs to it;</li>
+<li>which Kafka topics and ClickHouse schemas it owns;</li>
+<li>which runtime thresholds are stable business settings.</li>
+</ul>
+<p>Application isolation standard:</p>
+<ul>
+<li>default local app remains <code>delivery</code>;</li>
+<li><code>APP=fleet</code> selects the fleet runtime path;</li>
+<li>each app gets its own event contracts and serving schema;</li>
+<li>separate Flink jobs are used when application failure isolation is required;</li>
+<li>shared Docker Compose infrastructure is reused in the local lab.</li>
+</ul>
+<h3 id="dataset-registry">Dataset Registry</h3>
+<p>Dataset metadata belongs under <code>configs/datasets/&lt;domain&gt;/</code>.</p>
+<p>The dataset registry should become the onboarding surface for new tables. A new standard table should not require a new script if it is a full load, incremental load, CDC mirror, Iceberg write, ClickHouse publish, or simple quality-check pattern already supported by the platform.</p>
+<p>Dataset metadata should include:</p>
+<ul>
+<li><code>dataset_id</code>;</li>
+<li>application and domain;</li>
+<li>source system, schema, table, topic, or path;</li>
+<li>event contract or table schema;</li>
+<li>load mode: full, incremental, CDC, streaming, backfill;</li>
+<li>primary key;</li>
+<li>watermark;</li>
+<li>partitioning;</li>
+<li>target layer and table;</li>
+<li>schedule;</li>
+<li>SLA;</li>
+<li>owner;</li>
+<li>quality rules;</li>
+<li>retention;</li>
+<li>criticality;</li>
+<li>BI exposure.</li>
+</ul>
+<h3 id="kafka-architecture">Kafka Architecture</h3>
+<p>Recommended naming convention:</p>
+<pre><code>
+&lt;environment&gt;.&lt;domain&gt;.&lt;entity&gt;.&lt;event-family&gt;
+</code></pre>
+<p>Local topics may stay shorter for readability:</p>
+<pre><code>
+delivery-events
+vehicle-telemetry-events
+</code></pre>
+<p>Production examples:</p>
+<pre><code>
+prod.delivery.delivery.lifecycle
+prod.fleet.vehicle.telemetry
+prod.warehouse.inventory.movement
+</code></pre>
+<p>Topic strategy comparison:</p>
+<ul>
+<li>Topic per table: avoid by default; it causes topic and partition explosion.</li>
+<li>Topic per entity: good when one entity has clear ownership and ordering needs.</li>
+<li>Topic per domain: good for related event families with the same retention and consumers.</li>
+<li>Topic per event family: best default for DeliveryFlow because it balances isolation and manageability.</li>
+<li>Shared event topic: useful only for low-volume generic audit streams; avoid for core business events.</li>
+</ul>
+<p>Local topology:</p>
+<pre><code>
+1 KRaft broker
+replication factor 1
+small fixed partition count
+</code></pre>
+<p>Production minimum realistic topology:</p>
+<pre><code>
+3+ brokers
+replication factor 3
+rack/zone awareness when available
+separate monitoring for broker disk, ISR, request latency, consumer lag, partition skew
+</code></pre>
+<p>Scale out Kafka when broker disk, network throughput, request latency, under-replicated partitions, consumer lag, or partition hot spots show sustained pressure. Do not scale merely because table count increased.</p>
+<h3 id="schema-registry-decision">Schema Registry Decision</h3>
+<p>Current repository uses JSON plus <code>schema_version = 1</code> and Git-versioned JSON Schema files.</p>
+<p>Options:</p>
+<ul>
+<li>JSON Schema in Git: lowest operational complexity; good for this local platform and early multi-application work.</li>
+<li>Kafka Schema Registry with Avro: strong compatibility enforcement and compact payloads; useful when many teams produce/consume events.</li>
+<li>Kafka Schema Registry with Protobuf: good for strongly typed service ecosystems and long-lived APIs.</li>
+<li>Hybrid: keep JSON Schema in Git now; introduce Schema Registry for high-volume or multi-team domains later.</li>
+</ul>
+<p>Recommendation: do not add Schema Registry only to look enterprise. Add it when compatibility enforcement, producer/consumer independence, CI integration, and multi-team schema governance become operationally necessary.</p>
+<h3 id="flink-architecture">Flink Architecture</h3>
+<p>Current state:</p>
+<pre><code>
+DeliveryStreamingJob       Java DataStream API
+VehicleTelemetrySqlJob     Java Flink SQL / Table API
+</code></pre>
+<p>Grouping strategy:</p>
+<ul>
+<li>One giant job: avoid; upgrades and failures affect every domain.</li>
+<li>One job per table: avoid; too much runtime overhead.</li>
+<li>One job per application: good default while domains are small.</li>
+<li>One job per domain: good when one application owns independent subdomains.</li>
+<li>One job per business capability: best once state size, SLA, or ownership differs inside an application.</li>
+</ul>
+<p>Fleet uses Flink SQL because telemetry classification and window metrics are naturally expressed in SQL:</p>
+<pre><code>
+Kafka source table
+  -&gt; valid telemetry filter
+  -&gt; raw history
+  -&gt; latest state projection
+  -&gt; threshold alert classification
+  -&gt; five-minute event-time metrics
+  -&gt; ClickHouse fleet.*
+</code></pre>
+<p>The 10-second watermark is intentionally small because synthetic local telemetry is generated in-order or near-order. In production, late-arrival tolerance should be based on device buffering, mobile network delay, and observed event-time skew.</p>
+<p>Generic streaming pieces:</p>
+<ul>
+<li>Kafka source configuration.</li>
+<li>Contract/version validation.</li>
+<li>Logging and metrics.</li>
+<li>ClickHouse connectivity.</li>
+<li>Common sink error handling.</li>
+</ul>
+<p>Fleet-specific pieces:</p>
+<ul>
+<li>telemetry schema;</li>
+<li>threshold rules;</li>
+<li>vehicle state projection;</li>
+<li>alert classification;</li>
+<li>fleet metric SQL.</li>
+</ul>
+<h3 id="spark-and-batch-architecture">Spark and Batch Architecture</h3>
+<p>The current <code>daily_kpi_job.py</code> is acceptable for one business KPI flow. It should not become the pattern for hundreds of simple table loads.</p>
+<p>Target framework:</p>
+<pre><code>
+src/etl/framework/
+  metadata/
+  readers/
+  writers/
+  loaders/
+  quality/
+  publishing/
+</code></pre>
+<p>Reusable components should include:</p>
+<ul>
+<li><code>PostgresReader</code>;</li>
+<li><code>ClickHouseReader</code>;</li>
+<li><code>IcebergWriter</code>;</li>
+<li><code>ClickHouseWriter</code>;</li>
+<li><code>FullLoader</code>;</li>
+<li><code>IncrementalLoader</code>;</li>
+<li><code>MergeLoader</code>;</li>
+<li><code>QualityValidator</code>;</li>
+<li>backfill and reprocessing helpers.</li>
+</ul>
+<p>New tables should be metadata-only when they are standard source-to-target movement. New code is still appropriate for complex business transformations, custom algorithms, optimization logic, or domain-specific joins.</p>
+<h3 id="airflow-architecture">Airflow Architecture</h3>
+<p>Airflow should orchestrate Spark and operational workflows; it should not replace Spark or Flink.</p>
+<p>For 300-500 tables, use:</p>
+<ul>
+<li>DAG factory for generated application/domain DAGs;</li>
+<li>dynamic task mapping for dataset lists;</li>
+<li>one DAG per application/domain where schedules align;</li>
+<li>dataset-aware scheduling when upstream/downstream datasets matter;</li>
+<li>pools for source systems, applications, Spark concurrency, and ClickHouse publish limits;</li>
+<li>deterministic DAG generation tests in CI.</li>
+</ul>
+<p>Dependency metadata should model dataset edges instead of hardcoded Python chains:</p>
+<pre><code>
+bronze.orders
+  -&gt; silver.orders
+  -&gt; gold.sales
+  -&gt; clickhouse.sales_serving
+</code></pre>
+<p>Airflow should compile this graph into tasks and task groups. Cycles, missing owners, missing SLAs, and unknown datasets should fail validation before deployment.</p>
+<h3 id="iceberg-minio-and-nessie">Iceberg, MinIO, and Nessie</h3>
+<p>Iceberg can handle hundreds of tables. The real risks are metadata growth, many small files, snapshot growth, manifest bloat, and missing maintenance.</p>
+<p>Namespace standard:</p>
+<pre><code>
+&lt;application&gt;.&lt;layer&gt;.&lt;dataset&gt;
+
+        <h3>Hierarchical Namespace Convention</h3>
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span class="terminal-title">Iceberg Table Identifier</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># Format: <application>.<layer>.<dataset>
+delivery.bronze.raw_delivery_events
+delivery.gold.daily_delivery_kpi
+fleet.bronze.vehicle_telemetry_events
+</code></pre>
+<p>Partitioning should be chosen by query and write patterns, not copied blindly. Time-based event tables usually start with day/month partitions; high-cardinality ids should not become top-level partitions.</p>
+<p>Required maintenance:</p>
+<ul>
+<li>compact small files;</li>
+<li>expire old snapshots;</li>
+<li>remove orphan files;</li>
+<li>monitor manifest growth;</li>
+<li>document schema and partition evolution;</li>
+<li>validate replay and backfill idempotency.</li>
+</ul>
+<p>Object storage should not use one bucket per table. Keep a small number of buckets and let the catalog manage table locations:</p>
+<pre><code>
+s3://delivery-lakehouse/warehouse/&lt;namespace&gt;/&lt;table&gt;/
+</code></pre>
+<p>Nessie should be used as the catalog and for deliberate promotion/release workflows. Do not create a branch for every ETL run. Use branches/tags when testing data promotion, reproducing releases, or isolating larger backfills.</p>
+<h3 id="postgresql-separation">PostgreSQL Separation</h3>
+<p>Current local setup:</p>
+<pre><code>
+postgres-airflow
+  airflow_metadata
+fleet.bronze.vehicle_telemetry_events</code></pre>
+        </div>
+
+postgres-source
+  logistics_source
+  nessie_metadata
+</code></pre>
+<p>This is acceptable for local Docker Compose. Production should separate failure domains and ownership:</p>
+<ul>
+<li>Airflow metadata DB.</li>
+<li>Nessie metadata DB.</li>
+<li>Control-plane metadata DB, if introduced.</li>
+<li>Business source PostgreSQL systems.</li>
+</ul>
+<p>The local lab should not add more PostgreSQL containers until a concrete runtime need exists.</p>
+<h3 id="clickhouse-architecture">ClickHouse Architecture</h3>
+<p>ClickHouse currently serves:</p>
+<ul>
+<li>real-time operational tables;</li>
+<li>BI/reporting views;</li>
+<li>Spark source reads for KPI jobs;</li>
+<li>Spark-published KPI tables.</li>
+</ul>
+<p>Scale risks:</p>
+<ul>
+<li>concurrent streaming and batch writes;</li>
+<li>BI scans competing with ingestion;</li>
+<li>background merges;</li>
+<li>TTL and mutation load;</li>
+<li>wide table scans;</li>
+<li>materialized view complexity;</li>
+<li>query memory pressure.</li>
+</ul>
+<p>Local standard:</p>
+<pre><code>
+delivery.*   delivery operations and dashboard serving
+fleet.*      fleet telemetry serving
+</code></pre>
+<p>Production standard:</p>
+<ul>
+<li>keep application/domain schemas;</li>
+<li>separate operational and BI views logically;</li>
+<li>use the same cluster until workload metrics justify separation;</li>
+<li>split clusters only when ingestion, BI concurrency, memory pressure, or ownership requires it;</li>
+<li>use <code>MergeTree</code> for append history;</li>
+<li>use <code>ReplacingMergeTree</code> for latest-state tables with explicit version columns;</li>
+<li>define TTLs based on retention requirements.</li>
+</ul>
+<h3 id="superset-architecture">Superset Architecture</h3>
+<p>Superset must read approved ClickHouse serving tables and views. It should not read Kafka, raw object storage, or operational source PostgreSQL tables for dashboards.</p>
+<p>Current delivery BI is managed by:</p>
+<pre><code>
+configs/superset/deliveryflow_bi.yaml
+scripts/import_superset_assets.py
+make import-superset-assets
+</code></pre>
+<p>Fleet tables exist but <code>bi.superset</code> is currently false in <code>configs/applications/fleet.yaml</code>. When fleet BI is approved, add modular BI assets under:</p>
+<pre><code>
+configs/superset/fleet/
+</code></pre>
+<p>Future importer work should discover per-app BI files instead of forcing every dashboard into one YAML.</p>
+<h3 id="observability-and-operations">Observability and Operations</h3>
+<p>At this scale, metadata must also drive operational checks:</p>
+<ul>
+<li>Kafka topic exists and lag is acceptable.</li>
+<li>Flink job is running with expected name.</li>
+<li>Checkpoint age and failures are visible.</li>
+<li>ClickHouse table row counts and freshness are tracked.</li>
+<li>Airflow DAG parse, schedule, and task failures are visible.</li>
+<li>Spark jobs emit row counts and watermark summaries.</li>
+<li>Iceberg maintenance status is tracked.</li>
+<li>Superset import status is reproducible.</li>
+</ul>
+<p>Local health checks can stay simple, but the metadata model should provide enough information to generate checks later.</p>
+<h3 id="migration-roadmap">Migration Roadmap</h3>
+<h4 id="phase-1-current-multi-application-foundation">Phase 1 - Current Multi-Application Foundation</h4>
+<p>Status: implemented in this repository.</p>
+<p>Delivered:</p>
+<ul>
+<li>application metadata in <code>configs/applications/</code>;</li>
+<li>fleet dataset metadata in <code>configs/datasets/fleet/</code>;</li>
+<li>versioned delivery and fleet contracts;</li>
+<li>independent fleet Kafka topic;</li>
+<li>independent Java Flink SQL/Table API job;</li>
+<li>ClickHouse <code>fleet.*</code> serving tables;</li>
+<li>parameterized <code>APP=fleet</code> Makefile workflow;</li>
+<li>focused producer and smoke-test coverage.</li>
+</ul>
+<h4 id="phase-2-metadata-validation">Phase 2 - Metadata Validation</h4>
+<p>Add CI tests that validate every application and dataset file against a repository metadata schema. Validate owners, SLAs, contracts, target tables, topic names, and unsupported load modes.</p>
+<h4 id="phase-3-generic-batch-ingestion-runner">Phase 3 - Generic Batch Ingestion Runner</h4>
+<p>Introduce <code>src/etl/framework/</code> for common full and incremental PostgreSQL/ClickHouse to Iceberg flows. Keep <code>daily_kpi_job.py</code> as a domain KPI job until similar jobs justify migration.</p>
+<h4 id="phase-4-airflow-dag-factory">Phase 4 - Airflow DAG Factory</h4>
+<p>Generate deterministic DAGs or task groups from dataset metadata. Add parse tests and pool/concurrency controls before onboarding many tables.</p>
+<h4 id="phase-5-modular-bi-import">Phase 5 - Modular BI Import</h4>
+<p>Split Superset assets by application when a second dashboard domain is approved. Extend the importer to discover <code>configs/superset/&lt;app&gt;/</code>.</p>
+<h4 id="phase-6-cdc-and-schema-governance">Phase 6 - CDC and Schema Governance</h4>
+<p>Add CDC and Schema Registry only after the platform has enough multi-team or compatibility pressure to justify the operational cost.</p>
+<h4 id="phase-7-production-scale-out">Phase 7 - Production Scale-Out</h4>
+<p>Scale Kafka, Flink, Spark, ClickHouse, PostgreSQL, object storage, and Airflow based on measured bottlenecks, not table count alone.</p>
+<h3 id="definition-of-done-mapping">Definition of Done Mapping</h3>
+<p>The prompt requirements map to the repository as follows:</p>
+<ul>
+<li>Fleet contract exists: <code>src/contracts/fleet/vehicle_telemetry_v1.schema.json</code>.</li>
+<li>Synthetic producer creates telemetry events: <code>src/producers/events.py</code>.</li>
+<li>Fleet events publish to a separate topic: <code>vehicle-telemetry-events</code>.</li>
+<li>Java Flink SQL consumes the topic: <code>VehicleTelemetrySqlJob</code>.</li>
+<li>Event time and watermark are configured in the SQL source DDL.</li>
+<li>SQL transformations create raw, current state, health alerts, and metrics.</li>
+<li>ClickHouse has <code>fleet.vehicle_telemetry_events</code>.</li>
+<li>ClickHouse has <code>fleet.vehicle_current_state</code>.</li>
+<li>ClickHouse has <code>fleet.vehicle_health_alerts</code>.</li>
+<li>ClickHouse has <code>fleet.vehicle_metrics_5m</code>.</li>
+<li>Delivery remains the default application.</li>
+<li>Fleet is selected with <code>APP=fleet</code>.</li>
+<li>The structure supports a third application through metadata, contracts, target DDL, and only the distinct business processing code that is genuinely needed.</li>
+</ul>
+        <h3>Mandatory Lakehouse Maintenance Routines</h3>
+        <ul>
+          <li><strong>File Compaction:</strong> Scheduled Spark jobs execute <code>rewrite_data_files</code> on high-churn Bronze tables to coalesce small Parquet files into optimal 128MB &ndash; 512MB blocks.</li>
+          <li><strong>Snapshot Expiration:</strong> Run <code>expire_snapshots</code> retaining 7 days of historical commits to prevent Nessie catalog and MinIO metadata bloat.</li>
+          <li><strong>Orphan File Cleanup:</strong> Execute <code>remove_orphan_files</code> periodically to delete abandoned Parquet files from aborted transactions.</li>
+        </ul>
+
+        <h2 id="roadmap">Multi-Application Scaling Roadmap</h2>
+
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Phase 1 &bull; Complete</div>
+            <h3 class="service-card__title">Multi-App Control Plane</h3>
+            <p class="service-card__desc">
+              Implemented application registry (<code>configs/applications/</code>), dataset registry (<code>configs/datasets/fleet/</code>), versioned JSON schemas, and parameterized <code>APP=fleet</code> workflows.
+            </p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Phase 2 &bull; Implemented</div>
+            <h3 class="service-card__title">Metadata &amp; Contract CI</h3>
+            <p class="service-card__desc">
+              Automated pytest suite validates contract schema compliance, rate pacing, and environment configuration loaders in CI.
+            </p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Phase 3 &bull; Planned</div>
+            <h3 class="service-card__title">Generic Spark Ingestion Framework</h3>
+            <p class="service-card__desc">
+              Introduce <code>src/etl/framework/</code> containing shared Postgres/ClickHouse readers and Iceberg upsert loaders driven purely by dataset YAML.
+            </p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--bi">Phase 4 &bull; Planned</div>
+            <h3 class="service-card__title">Airflow Dynamic DAG Factory</h3>
+            <p class="service-card__desc">
+              Generate scheduled DAGs dynamically from dataset metadata with Airflow worker pools and dependency validation.
+            </p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Phase 5 &bull; Future Scale</div>
+            <h3 class="service-card__title">CDC &amp; Confluent Schema Registry</h3>
+            <p class="service-card__desc">
+              Introduce Debezium CDC for operational tables and Confluent Schema Registry with Avro when cross-team event governance demands it.
+            </p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Phase 6 &bull; Future Scale</div>
+            <h3 class="service-card__title">Distributed Infrastructure Scale-Out</h3>
+            <p class="service-card__desc">
+              Migrate from single-node Docker containers to multi-broker Kafka, multi-worker Spark/Flink on Kubernetes, and ClickHouse Keeper clusters.
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <div class="page-toc">
+        <div class="page-toc__title">On this page</div>
+        <ul class="page-toc__list">
+          <li><a href="#scale-risks">Scale Risks</a></li>
+          <li><a href="#control-vs-data-plane">Control vs Data Plane</a></li>
+          <li><a href="#dataset-metadata-spec">Dataset Metadata</a></li>
+          <li><a href="#stream-partitioning-strategy">Kafka &amp; Flink Scaling</a></li>
+          <li><a href="#lakehouse-scaling">Lakehouse Scaling</a></li>
+          <li><a href="#roadmap">Scaling Roadmap</a></li>
+        </ul>
+      </div>
+    </main>
+  </body>
+  </div>
+</body>
+</html>

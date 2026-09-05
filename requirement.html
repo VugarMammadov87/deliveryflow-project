@@ -1,0 +1,2047 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Real-Time Delivery Monitoring and Daily Transportation Optimization | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="docs/assets/css/documentation.css">
+    <script src="docs/assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+        <h1>Real-Time Delivery Monitoring and Daily Transportation Optimization</h1>
+        <p>Converted from requirement.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#real-time-delivery-monitoring-and-daily-transportation-optimization">Real-Time Delivery Monitoring and Daily Transportation Optimization</a>
+<a href="#0-current-multi-application-requirement-update">0. Current Multi-Application Requirement Update</a>
+<a href="#1-project-overview">1. Project Overview</a>
+<a href="#2-business-objectives">2. Business Objectives</a>
+<a href="#3-core-business-entities">3. Core Business Entities</a>
+<a href="#4-end-to-end-business-process">4. End-to-End Business Process</a>
+<a href="#5-delivery-lifecycle">5. Delivery Lifecycle</a>
+<a href="#6-real-time-streaming-requirements">6. Real-Time Streaming Requirements</a>
+<a href="#7-apache-kafka-requirements">7. Apache Kafka Requirements</a>
+<a href="#8-apache-flink-requirements">8. Apache Flink Requirements</a>
+<a href="#9-operational-serving-layer">9. Operational Serving Layer</a>
+<a href="#10-real-time-delay-detection">10. Real-Time Delay Detection</a>
+<a href="#11-route-deviation-detection">11. Route Deviation Detection</a>
+<a href="#12-eta-calculation">12. ETA Calculation</a>
+<a href="#13-raw-data-storage">13. Raw Data Storage</a>
+<a href="#14-data-lake-requirements">14. Data Lake Requirements</a>
+<a href="#15-apache-iceberg">15. Apache Iceberg</a>
+<a href="#16-catalog-layer">16. Catalog Layer</a>
+<a href="#17-daily-batch-processing-and-workflow-orchestration">17. Daily Batch Processing and Workflow Orchestration</a>
+<a href="#18-apache-spark-batch-requirements">18. Apache Spark Batch Requirements</a>
+<a href="#19-vehicle-utilization">19. Vehicle Utilization</a>
+<a href="#20-planned-vs-actual-performance">20. Planned vs Actual Performance</a>
+<a href="#21-transportation-cost-analytics">21. Transportation Cost Analytics</a>
+<a href="#22-next-day-transportation-optimization">22. Next-Day Transportation Optimization</a></aside>
+      <article class="doc-article">
+        <h2 id="real-time-delivery-monitoring-and-daily-transportation-optimization">Real-Time Delivery Monitoring and Daily Transportation Optimization</h2>
+<blockquote><strong>Document purpose:</strong> This file is the single source of truth for the project&#39;s business requirements, architecture requirements, infrastructure requirements, development rules, and implementation constraints. The platform is intended for local development first, while applying production-grade data engineering principles where practical.</blockquote>
+<h3 id="0-current-multi-application-requirement-update">0. Current Multi-Application Requirement Update</h3>
+<p>The repository must support more than one application without turning every future table into a separate custom script, job, DAG, and dashboard file.</p>
+<p>Current approved applications:</p>
+<ul>
+<li><code>delivery</code>: default application for delivery lifecycle events.</li>
+<li><code>fleet</code>: second stream application for vehicle telemetry events.</li>
+</ul>
+<p>Application metadata must live under <code>configs/applications/</code>. Dataset metadata must live under <code>configs/datasets/</code>. Versioned event contracts must live under <code>src/contracts/&lt;domain&gt;/</code>. Runtime commands may select an application with <code>APP=&lt;name&gt;</code> when the application has a distinct execution path.</p>
+<p>The default delivery flow must continue to work:</p>
+<pre><code>
+make submit-flink-job
+make produce
+make test-e2e
+</code></pre>
+<p>The fleet telemetry flow must be available separately:</p>
+<pre><code>
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+</code></pre>
+<p>The fleet application must use:</p>
+<ul>
+<li>Kafka topic: <code>vehicle-telemetry-events</code></li>
+<li>JSON contract: <code>src/contracts/fleet/vehicle_telemetry_v1.schema.json</code></li>
+<li>Flink job: <code>services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java</code></li>
+<li>ClickHouse schema: <code>fleet</code></li>
+<li>ClickHouse outputs: <code>vehicle_telemetry_events</code>, <code>vehicle_current_state</code>, <code>vehicle_health_alerts</code>, <code>vehicle_metrics_5m</code></li>
+</ul>
+<p>This requirement exists to prepare the project for 300-500 source and target tables, multiple ETL applications, multiple stream workloads, and multiple BI domains while keeping the local developer workflow simple.</p>
+<h3 id="1-project-overview">1. Project Overview</h3>
+<p>The company manages transportation and deliveries from multiple warehouses to stores and customers.</p>
+<p>The platform has two primary objectives:</p>
+<ul>
+<li>Monitor active delivery operations in near real time.</li>
+<li>Analyze historical transportation data using daily batch processing to improve future transportation planning.</li>
+</ul>
+<p>The architecture combines:</p>
+<pre><code>
+Real-time operational processing
++
+Historical analytical processing
++
+Transportation optimization
++
+BI reporting
+
+</code></pre>
+<p>The platform should initially be designed for local development using Docker Compose, while following production-grade data engineering principles where practical.</p>
+<p>---</p>
+<h3 id="2-business-objectives">2. Business Objectives</h3>
+<p>The main business goals are:</p>
+<ul>
+<li>Track active deliveries.</li>
+<li>Track current vehicle locations.</li>
+<li>Track shipment and order status.</li>
+<li>Detect delivery delays quickly.</li>
+<li>Calculate estimated arrival time.</li>
+<li>Detect route deviation.</li>
+<li>Monitor vehicle capacity.</li>
+<li>Monitor active vehicle workload.</li>
+<li>Detect problematic shipments.</li>
+<li>Generate operational alerts.</li>
+<li>Measure delivery performance.</li>
+<li>Compare planned vs actual delivery performance.</li>
+<li>Analyze warehouse performance.</li>
+<li>Analyze regional performance.</li>
+<li>Analyze route performance.</li>
+<li>Calculate transportation cost.</li>
+<li>Improve vehicle utilization.</li>
+<li>Improve route planning.</li>
+<li>Improve next-day transportation planning.</li>
+<li>Provide operational and management BI dashboards.</li>
+</ul>
+<p>---</p>
+<h3 id="3-core-business-entities">3. Core Business Entities</h3>
+<p>The following conceptual entities define the initial business domain.</p>
+<p>At minimum consider:</p>
+<pre><code>
+Order
+Shipment
+Delivery
+Vehicle
+Driver
+Warehouse
+Customer
+Store
+Route
+Transportation Plan
+Delivery Event
+GPS Event
+Region
+Delivery Confirmation
+
+</code></pre>
+<p>Important identifiers may include:</p>
+<pre><code>
+order_id
+shipment_id
+delivery_id
+vehicle_id
+driver_id
+warehouse_id
+customer_id
+store_id
+route_id
+transportation_plan_id
+event_id
+
+</code></pre>
+<p>These are conceptual requirements.</p>
+<p>The final physical schemas must be discussed before implementation.</p>
+<p>---</p>
+<h3 id="4-end-to-end-business-process">4. End-to-End Business Process</h3>
+<p>The end-to-end business flow is defined below.</p>
+<p>Reference end-to-end flow:</p>
+<pre><code>
+Orders / Warehouse / Vehicles
+            |
+            v
+     Transportation Plan
+            |
+            v
+        Deliveries
+            |
+     +------+------+
+     |             |
+     v             v
+Streaming       Raw Data
+Pipeline        Storage
+     |             |
+     v             v
+Kafka           Data Lake
+     |             |
+     v             v
+Flink           Spark
+     |             |
+     v             v
+Live Delivery   Daily Delivery
+Monitoring      Analytics
+     |             |
+     +------+------+
+            |
+            v
+        BI Reporting
+
+</code></pre>
+<p>Explain the flow clearly.</p>
+<p>Before transportation begins:</p>
+<pre><code>
+Orders
++
+Warehouse information
++
+Vehicle availability
++
+Capacity
++
+Routes
+        |
+        v
+Transportation Plan
+
+</code></pre>
+<p>During transportation:</p>
+<pre><code>
+Vehicles / Deliveries
+        |
+        v
+Events
+        |
+        v
+Kafka
+        |
+        v
+Flink
+        |
+        v
+Operational Serving Layer
+
+</code></pre>
+<p>At the same time raw/historical information must be persisted for replay and analytics:</p>
+<pre><code>
+Events / Operational Data
+        |
+        v
+Data Lake
+        |
+        v
+Spark Daily Batch
+        |
+        v
+Historical / Analytical Layer
+
+</code></pre>
+<p>Both operational and historical outputs eventually support BI and transportation decision-making. Apache Airflow should coordinate approved scheduled batch workflows around Spark, data-quality checks, and downstream publication, while remaining outside the streaming data path.</p>
+<p>---</p>
+<h3 id="5-delivery-lifecycle">5. Delivery Lifecycle</h3>
+<p>The platform must support a delivery lifecycle.</p>
+<p>Initial event examples:</p>
+<pre><code>
+ORDER_LOADED
+VEHICLE_DEPARTED
+IN_TRANSIT
+DELIVERY_DELAYED
+DELIVERED
+
+</code></pre>
+<p>Future events may include concepts such as:</p>
+<pre><code>
+ORDER_ASSIGNED
+ARRIVED_AT_CUSTOMER
+DELIVERY_FAILED
+DELIVERY_CANCELLED
+RETURN_STARTED
+RETURN_COMPLETED
+VEHICLE_BREAKDOWN
+ROUTE_DEVIATION
+
+</code></pre>
+<p>Do not treat the future list as finalized.</p>
+<p>The final event model must be discussed before implementation.</p>
+<p>---</p>
+<h3 id="6-real-time-streaming-requirements">6. Real-Time Streaming Requirements</h3>
+<p>During active delivery operations, events are continuously generated.</p>
+<p>Potential sources:</p>
+<ul>
+<li>Vehicle GPS devices</li>
+<li>Transportation management systems</li>
+<li>Warehouse systems</li>
+<li>Mobile driver applications</li>
+<li>Delivery services</li>
+<li>Order management systems</li>
+</ul>
+<p>Examples of streaming data:</p>
+<pre><code>
+GPS locations
+Shipment status updates
+Warehouse departure events
+Delivery confirmation events
+Vehicle capacity changes
+Transportation plan updates
+
+</code></pre>
+<p>The streaming architecture should conceptually follow:</p>
+<pre><code>
+Event Producer
+    |
+    v
+Kafka
+    |
+    v
+Flink
+    |
+    v
+Operational Serving Layer
+
+</code></pre>
+<p>---</p>
+<h3 id="7-apache-kafka-requirements">7. Apache Kafka Requirements</h3>
+<p>Apache Kafka should act as the streaming event backbone.</p>
+<p>Potential topics may eventually include:</p>
+<pre><code>
+delivery-events
+vehicle-location-events
+shipment-status-events
+warehouse-events
+transportation-plan-events
+
+</code></pre>
+<p>These are examples only.</p>
+<p>Do not consider the topic architecture finalized.</p>
+<p>Before implementation, the following must be designed:</p>
+<ul>
+<li>Topic strategy</li>
+<li>Event domain boundaries</li>
+<li>Message key</li>
+<li>Partition key</li>
+<li>Partition count</li>
+<li>Replication factor</li>
+<li>Event ordering requirements</li>
+<li>Retention</li>
+<li>Consumer groups</li>
+<li>Serialization format: JSON</li>
+<li>Versioned JSON event contracts</li>
+<li>Event schema</li>
+<li>JSON schema evolution and compatibility rules</li>
+<li>Replay strategy</li>
+<li>Duplicate handling</li>
+<li>Delivery semantics</li>
+<li>Dead-letter handling where justified</li>
+</ul>
+<p>Kafka must support replay of historical events where required.</p>
+<p>---</p>
+<h3 id="8-apache-flink-requirements">8. Apache Flink Requirements</h3>
+<p>Apache Flink should process transportation events in real time.</p>
+<p>Primary responsibilities:</p>
+<ul>
+<li>Track current location of every active vehicle.</li>
+<li>Track shipment state.</li>
+<li>Track delivery status.</li>
+<li>Detect late deliveries.</li>
+<li>Calculate ETA.</li>
+<li>Detect route deviation.</li>
+<li>Monitor vehicle utilization.</li>
+<li>Monitor active delivery workload.</li>
+<li>Identify problematic shipments.</li>
+<li>Generate alerts.</li>
+</ul>
+<p>Before implementing Flink jobs, explicitly design:</p>
+<ul>
+<li>Event time</li>
+<li>Processing time</li>
+<li>Watermarks</li>
+<li>Late events</li>
+<li>Out-of-order events</li>
+<li>Stateful processing</li>
+<li>State backend</li>
+<li>Keying strategy</li>
+<li>Checkpointing</li>
+<li>Savepoints</li>
+<li>Recovery behavior</li>
+<li>Exactly-once requirements</li>
+<li>At-least-once implications</li>
+<li>Windowing</li>
+<li>Backpressure handling</li>
+<li>Kafka source semantics</li>
+<li>Sink semantics</li>
+</ul>
+<p>Do not arbitrarily choose Flink SQL, Table API, Java DataStream API, or PyFlink without an architectural decision.</p>
+<p>---</p>
+<h3 id="9-operational-serving-layer">9. Operational Serving Layer</h3>
+<p>Real-time processed data should be available through a low-latency serving layer.</p>
+<p>ClickHouse is the initial candidate for operational and analytical serving.</p>
+<p>Potential data concepts:</p>
+<pre><code>
+delivery_current_state
+vehicle_current_state
+shipment_current_state
+route_current_state
+delivery_events
+
+</code></pre>
+<p>These are examples only.</p>
+<p>Before implementation determine:</p>
+<ul>
+<li>Query and access patterns</li>
+<li>Table boundaries and schemas</li>
+<li>ClickHouse table engines</li>
+<li><code>ORDER BY</code> keys</li>
+<li>Partitioning strategy</li>
+<li>Primary key strategy</li>
+<li>TTL and retention requirements</li>
+<li>Cardinality and expected data volume</li>
+<li>Insert batching strategy</li>
+<li>Update, replacement, and deduplication semantics</li>
+<li>Version columns where required</li>
+<li>Materialized views where justified</li>
+<li>Secondary indexes or projections only where justified</li>
+<li>Consistency expectations</li>
+<li>Flink-to-ClickHouse delivery semantics</li>
+<li>Retry and replay behavior</li>
+<li>Operational vs historical query responsibilities</li>
+</ul>
+<p>ClickHouse should primarily serve low-latency operational and analytical queries. The Data Lake remains the replayable raw and historical storage layer unless a separate architecture decision explicitly changes that responsibility.</p>
+<p>---</p>
+<h3 id="10-real-time-delay-detection">10. Real-Time Delay Detection</h3>
+<p>The system should be capable of detecting delivery delays.</p>
+<p>Potential signals:</p>
+<ul>
+<li>Planned departure time vs actual departure time</li>
+<li>Planned ETA vs calculated ETA</li>
+<li>Expected route progress vs GPS position</li>
+<li>Traffic-related delay signals if eventually available</li>
+<li>Delivery stop duration</li>
+<li>Historical route duration</li>
+<li>Driver/vehicle status</li>
+<li>Delivery sequence</li>
+</ul>
+<p>Example:</p>
+<pre><code>
+Planned arrival: 14:00
+Current ETA:     14:25
+Delay:           25 minutes
+
+</code></pre>
+<p>The exact business definition of &quot;delayed&quot; must be defined before implementation.</p>
+<p>Do not hardcode an arbitrary threshold without approval.</p>
+<p>---</p>
+<h3 id="11-route-deviation-detection">11. Route Deviation Detection</h3>
+<p>The platform should eventually support route deviation detection using GPS information.</p>
+<p>Potential inputs:</p>
+<pre><code>
+planned route
+current GPS location
+previous GPS locations
+destination
+planned stop sequence
+
+</code></pre>
+<p>Implementation method is not finalized.</p>
+<p>Possible approaches may eventually include:</p>
+<ul>
+<li>Geofencing</li>
+<li>Distance from expected route</li>
+<li>Road network integration</li>
+<li>Map API</li>
+<li>Simplified route-coordinate model for the local lab</li>
+</ul>
+<p>A suitable approach must be discussed before implementation.</p>
+<p>---</p>
+<h3 id="12-eta-calculation">12. ETA Calculation</h3>
+<p>The streaming platform should eventually calculate or estimate arrival time.</p>
+<p>Potential inputs:</p>
+<pre><code>
+Current GPS location
+Destination
+Remaining distance
+Historical route duration
+Current delay
+Vehicle speed
+Planned route
+
+</code></pre>
+<p>Initial lab implementation can use a simplified ETA model.</p>
+<p>The architecture should allow more advanced models later.</p>
+<p>---</p>
+<h3 id="13-raw-data-storage">13. Raw Data Storage</h3>
+<p>All relevant raw transportation events must eventually be persisted so they can be:</p>
+<ul>
+<li>Reprocessed</li>
+<li>Replayed</li>
+<li>Audited</li>
+<li>Analyzed historically</li>
+<li>Used for debugging</li>
+<li>Used for data quality investigation</li>
+</ul>
+<p>Potential raw datasets:</p>
+<pre><code>
+raw_delivery_events
+gps_events
+transportation_plans
+warehouse_events
+vehicle_events
+shipment_events
+delivery_confirmation_events
+
+</code></pre>
+<p>---</p>
+<h3 id="14-data-lake-requirements">14. Data Lake Requirements</h3>
+<p>Historical and raw information should be stored in an S3-compatible Data Lake.</p>
+<p>Possible technologies:</p>
+<pre><code>
+RustFS
+MinIO
+S3-compatible object storage
+AWS S3 in future production scenarios
+
+</code></pre>
+<p>The exact implementation must be approved before creation.</p>
+<p>The Data Lake architecture should evaluate:</p>
+<pre><code>
+Raw / Bronze
+Silver
+Gold
+
+</code></pre>
+<p>where appropriate.</p>
+<p>The approved analytical storage model is:</p>
+<pre><code>
+Data files    -&gt; Parquet
+Table format  -&gt; Apache Iceberg
+Catalog       -&gt; Nessie
+Object store  -&gt; Approved S3-compatible storage
+
+</code></pre>
+<p>Before implementation determine:</p>
+<ul>
+<li>Parquet data-file configuration</li>
+<li>Apache Iceberg table design</li>
+<li>Nessie catalog configuration</li>
+<li>Partitioning</li>
+<li>Data retention</li>
+<li>Schema evolution</li>
+<li>Small-file strategy</li>
+<li>Compaction</li>
+<li>Replay</li>
+<li>Idempotency</li>
+<li>Data lifecycle</li>
+<li>Data quality</li>
+<li>Metadata management</li>
+</ul>
+<p>---</p>
+<h3 id="15-apache-iceberg">15. Apache Iceberg</h3>
+<p>Apache Iceberg is the approved table format for analytical Data Lake tables. Parquet remains the underlying analytical data-file format.</p>
+<p>Required architectural benefits include:</p>
+<ul>
+<li>ACID-style table commits</li>
+<li>Snapshot management</li>
+<li>Schema evolution</li>
+<li>Partition evolution</li>
+<li>Hidden partitioning</li>
+<li>Metadata-driven query planning</li>
+<li>Time travel</li>
+<li>Maintainable large analytical datasets</li>
+<li>Safer replay, backfill, and batch publication patterns</li>
+</ul>
+<p>The implementation must design Iceberg tables intentionally rather than treating Iceberg as a transparent replacement for plain files.</p>
+<p>Before creating production-style Iceberg tables determine:</p>
+<ul>
+<li>Table boundaries and ownership</li>
+<li>Partition strategy</li>
+<li>Sort/order strategy where useful</li>
+<li>Snapshot retention</li>
+<li>Expired snapshot cleanup</li>
+<li>Orphan file cleanup</li>
+<li>Compaction strategy</li>
+<li>Schema evolution rules</li>
+<li>Partition evolution rules</li>
+<li>Spark read/write behavior</li>
+<li>Flink integration only where justified</li>
+<li>Nessie catalog namespaces and references</li>
+</ul>
+<p>Plain standalone Parquet tables are not the target analytical table architecture for this project. Parquet is used as the Iceberg data-file format.</p>
+<p>---</p>
+<h3 id="16-catalog-layer">16. Catalog Layer</h3>
+<p>Nessie is the approved catalog layer for Apache Iceberg tables.</p>
+<p>The architecture must clearly distinguish:</p>
+<pre><code>
+Data Files     -&gt; S3-compatible Object Storage (Parquet)
+Iceberg Metadata -&gt; S3-compatible Object Storage
+Catalog        -&gt; Nessie
+Compute        -&gt; Spark / Flink where supported and approved
+Orchestration  -&gt; Airflow
+
+</code></pre>
+<p>Nessie is responsible for catalog-level table discovery and metadata references; it is not the Data Lake itself and must not store business data as a replacement for object storage.</p>
+<p>Before implementation determine:</p>
+<ul>
+<li>Nessie image/version compatibility with Iceberg and Spark</li>
+<li>Catalog endpoint configuration</li>
+<li>Warehouse location</li>
+<li>Namespace strategy</li>
+<li>Authentication strategy for future non-local environments</li>
+<li>Branch/reference usage, keeping local development simple</li>
+<li>Recovery and metadata persistence behavior</li>
+<li>Health-check/readiness behavior</li>
+</ul>
+<p>Do not introduce a second metadata catalog unless a separate approved requirement justifies it.</p>
+<p>---</p>
+<h3 id="17-daily-batch-processing-and-workflow-orchestration">17. Daily Batch Processing and Workflow Orchestration</h3>
+<p>At the end of each business day, Apache Airflow should orchestrate the approved batch workflow, while Apache Spark remains the primary batch compute engine for processing raw and completed transportation information.</p>
+<p>Airflow is the orchestration/control plane and must not replace Flink for streaming processing or Spark for distributed batch computation.</p>
+<p>Conceptual daily workflow:</p>
+<pre><code>
+Airflow DAG
+    |
+    +--&gt; Validate upstream data readiness
+    |
+    +--&gt; Trigger Spark daily batch
+    |
+    +--&gt; Run approved data-quality checks
+    |
+    +--&gt; Publish analytical outputs
+    |
+    +--&gt; Trigger downstream BI/optimization dependencies where justified
+
+</code></pre>
+<p>Airflow responsibilities may include:</p>
+<ul>
+<li>Scheduling daily and periodic batch workflows.</li>
+<li>Managing task dependencies.</li>
+<li>Triggering Spark jobs.</li>
+<li>Coordinating data-quality and publication steps.</li>
+<li>Managing retries and failure visibility.</li>
+<li>Supporting approved backfills and reprocessing.</li>
+<li>Exposing DAG and task execution status.</li>
+<li>Applying timeouts, retry policies, and execution controls.</li>
+</ul>
+<p>Before implementing Airflow, explicitly determine:</p>
+<ul>
+<li>Executor: LocalExecutor.</li>
+<li>LocalExecutor parallelism and concurrency limits appropriate for the local machine.</li>
+<li>Airflow metadata database design.</li>
+<li>PostgreSQL database/schema/user isolation for Airflow metadata.</li>
+<li>DAG structure and ownership.</li>
+<li>Scheduling and timezone behavior.</li>
+<li>Catchup and backfill behavior.</li>
+<li>Retry and timeout strategy.</li>
+<li>Idempotency requirements.</li>
+<li>Spark job submission mechanism.</li>
+<li>Connection and secret management.</li>
+<li>Logging and observability.</li>
+<li>Failure notification strategy where justified.</li>
+</ul>
+<p>Input domains for the Spark batch layer may include:</p>
+<pre><code>
+Raw delivery events
+GPS events
+Transportation plans
+Warehouse data
+Vehicle data
+Shipment records
+Completed deliveries
+Route information
+
+</code></pre>
+<p>---</p>
+<h3 id="18-apache-spark-batch-requirements">18. Apache Spark Batch Requirements</h3>
+<p>Spark should remain responsible for distributed batch computation. Approved production-style daily Spark jobs should normally be triggered and monitored by Airflow rather than relying on manual scheduling.</p>
+<p>Spark should calculate at minimum:</p>
+<ul>
+<li>Number of completed deliveries</li>
+<li>Total distance traveled</li>
+<li>Vehicle utilization</li>
+<li>Planned vs actual delivery time</li>
+<li>Average delivery duration</li>
+<li>Delayed deliveries</li>
+<li>Delay rate</li>
+<li>On-time delivery rate</li>
+<li>Frequently delayed routes</li>
+<li>Warehouse performance</li>
+<li>Regional performance</li>
+<li>Transportation cost</li>
+<li>Cost per delivery</li>
+<li>Historical delivery KPIs</li>
+<li>Inputs for next-day planning</li>
+</ul>
+<p>Potential analytical outputs:</p>
+<pre><code>
+daily_delivery_kpi
+vehicle_utilization_daily
+route_performance_daily
+warehouse_performance_daily
+transportation_cost_daily
+delivery_delay_analysis
+
+</code></pre>
+<p>These names are conceptual and must not be treated as final schemas.</p>
+<p>---</p>
+<h3 id="19-vehicle-utilization">19. Vehicle Utilization</h3>
+<p>The system should calculate vehicle utilization.</p>
+<p>Example conceptual formula:</p>
+<pre><code>
+Utilization =
+Used Capacity / Available Capacity
+
+</code></pre>
+<p>Capacity may eventually be measured using:</p>
+<pre><code>
+Order count
+Weight
+Volume
+Pallet count
+Custom capacity unit
+
+</code></pre>
+<p>The final business definition must be decided before implementation.</p>
+<p>---</p>
+<h3 id="20-planned-vs-actual-performance">20. Planned vs Actual Performance</h3>
+<p>The analytical layer should support comparisons such as:</p>
+<pre><code>
+planned_departure_time vs actual_departure_time
+planned_arrival_time   vs actual_arrival_time
+planned_duration       vs actual_duration
+planned_distance       vs actual_distance
+planned_capacity       vs actual_capacity
+
+</code></pre>
+<p>These comparisons should enable root-cause and route-performance analysis.</p>
+<p>---</p>
+<h3 id="21-transportation-cost-analytics">21. Transportation Cost Analytics</h3>
+<p>The analytical platform should eventually support transportation cost calculations.</p>
+<p>Potential cost components:</p>
+<pre><code>
+Fuel
+Driver cost
+Vehicle operating cost
+Distance-related cost
+Fixed trip cost
+Warehouse handling cost
+Other operational costs
+
+</code></pre>
+<p>Exact formulas must be defined with business requirements before implementation.</p>
+<p>---</p>
+<h3 id="22-next-day-transportation-optimization">22. Next-Day Transportation Optimization</h3>
+<p>Daily batch output should eventually be usable as input for the next day&#39;s transportation planning.</p>
+<p>Potential use cases:</p>
+<ul>
+<li>Better vehicle allocation</li>
+<li>Better route selection</li>
+<li>Avoid historically problematic routes</li>
+<li>Better warehouse allocation</li>
+<li>Capacity balancing</li>
+<li>Improved delivery scheduling</li>
+</ul>
+<p>Initial project scope may provide analytical inputs rather than implementing a full optimization solver.</p>
+<p>Do not introduce optimization frameworks without explicit approval.</p>
+<p>---</p>
+<h3 id="23-example-business-scenario">23. Example Business Scenario</h3>
+<p>Reference business scenario:</p>
+<p>A truck leaves the Baku warehouse carrying 80 customer orders.</p>
+<p>During transportation:</p>
+<pre><code>
+Vehicle
+  |
+  v
+GPS + Delivery Events
+  |
+  v
+Kafka
+  |
+  v
+Flink
+
+</code></pre>
+<p>Flink detects that the vehicle is approximately 25 minutes behind schedule.</p>
+<p>Several active shipments are marked as potentially delayed.</p>
+<p>At the end of the day Spark processes completed delivery data.</p>
+<p>Example daily results:</p>
+<pre><code>
+Delivered orders:             1,250
+On-time delivery rate:        94%
+Delayed delivery rate:         6%
+Average vehicle utilization:  82%
+Average delivery time:        46 minutes
+Highest-delay route:          Baku-Sumqayit
+
+</code></pre>
+<p>These results can then be used to improve the next day&#39;s transportation plan.</p>
+<p>---</p>
+<h3 id="24-bi-reporting-requirements">24. BI Reporting Requirements</h3>
+<p>Superset is the approved BI and reporting layer.</p>
+<p>Potential KPIs:</p>
+<ul>
+<li>Total deliveries</li>
+<li>Completed deliveries</li>
+<li>Active deliveries</li>
+<li>On-time delivery rate</li>
+<li>Delayed delivery rate</li>
+<li>Average delivery time</li>
+<li>Vehicle utilization rate</li>
+<li>Total distance traveled</li>
+<li>Delivery performance by region</li>
+<li>Delivery performance by warehouse</li>
+<li>Most delayed routes</li>
+<li>Transportation cost</li>
+<li>Transportation cost per delivery</li>
+<li>Planned vs actual delivery time</li>
+<li>Daily trend</li>
+<li>Weekly trend</li>
+<li>Monthly trend</li>
+</ul>
+<p>Operational dashboards and management dashboards should be considered separate concerns where appropriate.</p>
+<p>Superset BI objects should be importable from version-controlled repository assets where practical.</p>
+<p>Required local BI-as-code command:</p>
+<pre><code>
+make import-superset-assets
+
+</code></pre>
+<p>This command should import or update the Superset database connection, datasets, charts, and dashboard definitions from the repository assets instead of requiring manual dashboard rebuilding in the Superset UI.</p>
+<p>Superset chart definitions must be renderable after import:</p>
+<ul>
+<li>YAML metric names such as <code>event_count</code>, <code>delay_rate</code>, and <code>avg_delay_minutes</code> must not be treated as missing saved metrics.</li>
+<li>The importer should convert readable metric names into chart-level adhoc metrics.</li>
+<li>Count and amount columns should use <code>SUM(...)</code> unless a different aggregation is explicitly required.</li>
+<li>Rate and average columns should use <code>AVG(...)</code> unless a different aggregation is explicitly required.</li>
+<li>Timeseries charts must define a datetime column explicitly.</li>
+<li><code>event_hour</code> must be configured as the datetime axis for hourly delivery event volume.</li>
+<li><code>business_date</code> and <code>event_hour</code> should be represented as temporal dataset metadata where appropriate.</li>
+</ul>
+<p>---</p>
+<h3 id="25-target-logical-architecture">25. Target Logical Architecture</h3>
+<p>The target logical architecture is:</p>
+<pre><code>
+                    +----------------------+
+                    |   Orders / Warehouse |
+                    |      / Vehicles      |
+                    +----------+-----------+
+                               |
+                               v
+                    +----------------------+
+                    | Transportation Plan  |
+                    +----------+-----------+
+                               |
+                               v
+                    +----------------------+
+                    |      Deliveries      |
+                    +----------+-----------+
+                               |
+                 +-------------+-------------+
+                 |                           |
+                 v                           v
+        +----------------+          +----------------+
+        |     Kafka      |          |   Data Lake    |
+        +-------+--------+          +-------+--------+
+                |                           |
+                v                           v
+        +----------------+          +----------------+       +----------------+
+        |     Flink      |          |     Spark      |&lt;------+    Airflow     |
+        +-------+--------+          +-------+--------+       | orchestration  |
+                |                           |                +----------------+
+                |                           |
+                v                           v
+        +-------------------+       +-------------------+
+        | ClickHouse / Live |       |  Historical KPI   |
+        |   Serving Layer   |       |    / Analytics    |
+        +---------+---------+       +---------+---------+
+                |                           |
+                +-------------+-------------+
+                              |
+                              v
+                     +----------------+
+                     |    Superset    |
+                     +----------------+
+
+</code></pre>
+<p>Airflow represents the batch workflow orchestration/control plane. Business data should flow between storage and compute systems directly; Airflow should coordinate Spark execution, dependencies, retries, data-quality steps, and downstream publication rather than becoming a data-processing engine itself.</p>
+<p>---</p>
+<h3 id="26-proposed-technology-stack">26. Proposed Technology Stack</h3>
+<p>The approved target technology stack is:</p>
+<pre><code>
+Container Runtime:
+Docker
+
+Local Orchestration:
+Docker Compose
+
+Streaming Backbone:
+Apache Kafka
+
+Stream Processing:
+Apache Flink
+
+Batch Processing:
+Apache Spark
+
+Workflow Orchestration:
+Apache Airflow
+
+Low-Latency Serving:
+ClickHouse
+
+Data Lake:
+S3-compatible object storage
+
+Analytical Data File Format:
+Parquet
+
+Data Lake Table Format:
+Apache Iceberg
+
+Iceberg Catalog:
+Nessie
+
+Programming:
+Python
+PySpark
+Flink-compatible implementation to be decided
+
+Relational Database:
+PostgreSQL where business/relational workloads require it, and as the initial candidate for Airflow metadata storage
+
+BI:
+Superset
+
+Developer Automation:
+Makefile
+
+</code></pre>
+<p>This list represents the approved target technologies. It does not authorize Codex to install or configure all services automatically; the strict approval workflow still applies.</p>
+<p>---</p>
+<h3 id="27-repository-infrastructure-requirements">27. Repository Infrastructure Requirements</h3>
+<p>The repository should eventually contain professional local infrastructure configuration.</p>
+<p>Potential structure:</p>
+<pre><code>
+project-root/
+|-- requirement.md
+|-- .env
+|-- .env.example
+|-- .gitignore
+|-- Makefile
+|-- docker-compose.yml
+|-- docker-compose.local.yml
+|
+|-- services/
+|   |-- kafka/
+|   |-- flink/
+|   |-- spark/
+|   |-- airflow/
+|   |-- clickhouse/
+|   |-- object-storage/
+|   |-- nessie/
+|   \-- postgres/
+|
+|-- dags/
+|
+|-- src/
+|   |-- producers/
+|   |-- streaming/
+|   \-- batch/
+|
+|-- configs/
+|-- scripts/
+|-- tests/
+|-- docs/
+\-- data/
+</code></pre>
+<p>This is a possible target structure only.</p>
+<p>The actual existing repository must be inspected before creating these directories.</p>
+<p>---</p>
+<h3 id="28-docker-compose-requirements">28. Docker Compose Requirements</h3>
+<p>Docker Compose must eventually manage all approved local platform services.</p>
+<p>Compose configuration should follow these principles:</p>
+<ul>
+<li>Modular service design</li>
+<li>Explicit service definitions</li>
+<li>Shared Docker network</li>
+<li>Named volumes</li>
+<li>Persistent storage where required</li>
+<li>Health checks</li>
+<li>Restart policies where justified</li>
+<li>Environment-driven configuration</li>
+<li>Service dependencies</li>
+<li>Internal Docker DNS</li>
+<li>Host port mappings only where required</li>
+<li>Version-pinned images</li>
+<li>Resource configuration where justified</li>
+<li>Minimal duplication</li>
+<li>Local developer usability</li>
+</ul>
+<p>Do not unnecessarily expose internal services to the host.</p>
+<p>---</p>
+<h3 id="29-docker-internal-networking">29. Docker Internal Networking</h3>
+<p>Containers must communicate using Docker DNS/service names.</p>
+<p>Examples:</p>
+<pre><code>
+kafka:9092
+clickhouse:8123
+postgres:5432
+airflow-webserver:8080
+nessie:19120
+spark-master:7077
+
+</code></pre>
+<p>Do not configure one container to access another using:</p>
+<pre><code>
+localhost
+
+</code></pre>
+<p>because inside a container <code>localhost</code> refers to that container itself.</p>
+<p>Clearly separate:</p>
+<pre><code>
+Internal container endpoint
+vs
+Host-accessible endpoint
+
+</code></pre>
+<p>---</p>
+<h3 id="30-shared-docker-network">30. Shared Docker Network</h3>
+<p>The data platform should use a shared Docker network.</p>
+<p>Potential name:</p>
+<pre><code>
+delivery-platform-net
+
+</code></pre>
+<p>Before creating it, inspect whether an appropriate network already exists.</p>
+<p>The architecture should account for:</p>
+<ul>
+<li>Service discovery</li>
+<li>Container DNS</li>
+<li>Host access</li>
+<li>Port conflicts</li>
+<li>Multiple local instances</li>
+<li>Network isolation</li>
+</ul>
+<p>---</p>
+<h3 id="31-docker-volumes">31. Docker Volumes</h3>
+<p>Persistent state should use named volumes where appropriate.</p>
+<p>Examples:</p>
+<pre><code>
+Kafka data
+ClickHouse data
+Object Storage data
+PostgreSQL data
+Airflow metadata through PostgreSQL
+Airflow logs where persistent local logs are justified
+Nessie metadata
+
+</code></pre>
+<p>Normal:</p>
+<pre><code>
+make down
+
+</code></pre>
+<p>must not delete persistent volumes.</p>
+<p>Destructive cleanup should be a separate explicit action.</p>
+<p>---</p>
+<h3 id="32-container-api-and-management-requirements">32. Container API and Management Requirements</h3>
+<p>Docker Engine / Docker Compose should be the primary container management mechanism.</p>
+<p>Required operational capabilities:</p>
+<ul>
+<li>Container status</li>
+<li>Container health</li>
+<li>Logs</li>
+<li>Start</li>
+<li>Stop</li>
+<li>Restart</li>
+<li>Service inspection</li>
+<li>Network inspection</li>
+<li>Volume inspection</li>
+</ul>
+<p>Prefer standard commands such as:</p>
+<pre><code>
+docker compose
+docker inspect
+docker logs
+docker network inspect
+docker volume inspect
+
+</code></pre>
+<p>Do not mount:</p>
+<pre><code>
+/var/run/docker.sock
+
+</code></pre>
+<p>inside application containers unless a genuine Container API use case exists.</p>
+<p>Docker socket access provides powerful host-level privileges and must be treated as a security-sensitive architectural decision.</p>
+<p>If direct Container API access is proposed, document:</p>
+<ul>
+<li>Why it is required</li>
+<li>Security implications</li>
+<li>Alternatives</li>
+<li>Required permissions</li>
+</ul>
+<p>and obtain explicit approval before implementing it.</p>
+<p>---</p>
+<h3 id="33-makefile-requirements">33. Makefile Requirements</h3>
+<p>Create a professional root <code>Makefile</code> during the implementation phase.</p>
+<p>The goal is to provide a simple developer interface.</p>
+<p>Expected commands where appropriate:</p>
+<pre><code>
+make help
+
+make up
+make down
+make restart
+
+make status
+make ps
+make health
+
+make logs
+
+make build
+make pull
+
+make clean
+
+make import-superset-assets
+
+</code></pre>
+<p><code>make import-superset-assets</code> should rebuild the importer image before running the importer container so BI asset and script changes are not hidden by a stale Docker image.</p>
+<p>Service-specific logging may include:</p>
+<pre><code>
+make logs-kafka
+make logs-flink
+make logs-spark
+make logs-airflow
+make logs-clickhouse
+make logs-postgres
+make logs-storage
+make logs-nessie
+
+</code></pre>
+<p>Service-specific start/stop targets should only be introduced where they provide real value.</p>
+<p>---</p>
+<h3 id="34-destructive-makefile-operations">34. Destructive Makefile Operations</h3>
+<p>Commands such as:</p>
+<pre><code>
+make clean
+make reset
+make reset-kafka
+make reset-lake
+
+</code></pre>
+<p>must clearly state when they delete:</p>
+<ul>
+<li>Containers</li>
+<li>Volumes</li>
+<li>Topics</li>
+<li>Object storage data</li>
+<li>Database data</li>
+<li>Metadata</li>
+</ul>
+<p>Destructive commands must never be executed automatically.</p>
+<p>---</p>
+<h3 id="35-environment-variable-requirements">35. Environment Variable Requirements</h3>
+<p>Environment-specific values must be centralized.</p>
+<p>Primary candidate:</p>
+<pre><code>
+.env
+
+</code></pre>
+<p>Optional supporting files:</p>
+<pre><code>
+.env.example
+.env.local
+.env.dev
+
+</code></pre>
+<p>The final environment file strategy must be decided before implementation.</p>
+<p>Potential environment variables include only those actually required.</p>
+<p>Examples:</p>
+<pre><code>
+COMPOSE_PROJECT_NAME
+
+KAFKA_IMAGE
+KAFKA_BROKER_PORT
+KAFKA_CONTROLLER_PORT
+KAFKA_CLUSTER_ID
+
+FLINK_IMAGE
+FLINK_JOBMANAGER_PORT
+FLINK_UI_PORT
+
+SPARK_IMAGE
+SPARK_MASTER_PORT
+SPARK_MASTER_UI_PORT
+SPARK_WORKER_MEMORY
+SPARK_WORKER_CORES
+
+AIRFLOW_IMAGE
+AIRFLOW_WEB_PORT
+AIRFLOW_EXECUTOR
+AIRFLOW_DB_NAME
+
+CLICKHOUSE_IMAGE
+CLICKHOUSE_HTTP_PORT
+CLICKHOUSE_NATIVE_PORT
+CLICKHOUSE_DATABASE
+
+S3_ENDPOINT
+S3_ACCESS_KEY
+S3_SECRET_KEY
+S3_BUCKET
+S3_REGION
+
+NESSIE_IMAGE
+NESSIE_PORT
+
+POSTGRES_IMAGE
+POSTGRES_PORT
+POSTGRES_DATABASE
+POSTGRES_USER
+POSTGRES_PASSWORD
+
+NETWORK_SUBNET
+
+</code></pre>
+<p>Do not create environment variables that are not used.</p>
+<p>---</p>
+<h3 id="36-environment-configuration-principles">36. Environment Configuration Principles</h3>
+<p>Avoid hardcoded:</p>
+<ul>
+<li>Ports</li>
+<li>Hosts</li>
+<li>Container image versions</li>
+<li>Credentials</li>
+<li>Endpoints</li>
+<li>Bucket names</li>
+<li>Database names</li>
+</ul>
+<p>where environment configuration is more appropriate.</p>
+<p>Use Compose interpolation:</p>
+<pre><code>
+${VARIABLE_NAME}
+
+</code></pre>
+<p>or safe local defaults where justified:</p>
+<pre><code>
+${VARIABLE_NAME:-default-value}
+
+</code></pre>
+<p>Do not provide insecure production secret defaults.</p>
+<p>---</p>
+<h3 id="37-internal-vs-external-endpoints">37. Internal vs External Endpoints</h3>
+<p>Explicitly distinguish endpoints.</p>
+<p>Example:</p>
+<p>Host access:</p>
+<pre><code>
+localhost:9092
+localhost:8123
+localhost:5432
+localhost:8080
+localhost:19120
+
+</code></pre>
+<p>Container access:</p>
+<pre><code>
+kafka:9092
+clickhouse:8123
+postgres:5432
+airflow-webserver:8080
+nessie:19120
+
+</code></pre>
+<p>Kafka may require distinct internal and external listener configuration.</p>
+<p>Potential variables:</p>
+<pre><code>
+KAFKA_INTERNAL_BOOTSTRAP_SERVERS
+KAFKA_EXTERNAL_BOOTSTRAP_SERVERS
+
+</code></pre>
+<p>The final listener configuration must be designed based on the chosen Kafka image.</p>
+<p>---</p>
+<h3 id="38-secrets-management">38. Secrets Management</h3>
+<p>Never commit real production credentials.</p>
+<p>Local development credentials must be clearly identified as:</p>
+<pre><code>
+LOCAL / DEVELOPMENT ONLY
+
+</code></pre>
+<p>When appropriate provide <code>.env.example</code> with placeholders such as:</p>
+<pre><code>
+S3_ACCESS_KEY=change-me
+S3_SECRET_KEY=change-me
+
+</code></pre>
+<p>Existing <code>.gitignore</code> must be inspected before modification.</p>
+<p>Never overwrite <code>.gitignore</code> blindly.</p>
+<p>---</p>
+<h3 id="39-docker-image-versioning">39. Docker Image Versioning</h3>
+<p>Do not arbitrarily use:</p>
+<pre><code>
+latest
+
+</code></pre>
+<p>for important platform services.</p>
+<p>Pin compatible versions.</p>
+<p>Before selecting versions, validate compatibility between:</p>
+<pre><code>
+Kafka &lt;-&gt; Flink connector
+Flink &lt;-&gt; Java
+Spark &lt;-&gt; Java
+Spark &lt;-&gt; Iceberg
+Iceberg &lt;-&gt; Spark
+Airflow &lt;-&gt; Python
+Airflow &lt;-&gt; PostgreSQL
+Airflow &lt;-&gt; Spark job submission
+Nessie &lt;-&gt; Iceberg
+Python &lt;-&gt; Kafka client
+PostgreSQL &lt;-&gt; Python database driver
+
+</code></pre>
+<p>Version choices should be documented.</p>
+<p>---</p>
+<h3 id="40-health-checks">40. Health Checks</h3>
+<p>Where possible every major service should have a meaningful health check.</p>
+<p>Health should represent service readiness, not merely process existence.</p>
+<p>Examples:</p>
+<pre><code>
+Kafka broker ready
+Flink JobManager reachable
+Spark Master reachable
+Airflow webserver/API reachable
+Airflow scheduler healthy
+PostgreSQL readiness query successful
+ClickHouse readiness query successful
+Object storage responding
+Nessie API responding
+
+</code></pre>
+<p>---</p>
+<h3 id="41-make-health">41. Make Health</h3>
+<p>The final developer experience should support:</p>
+<pre><code>
+make health
+
+</code></pre>
+<p>with a simple result similar to:</p>
+<pre><code>
+Kafka           healthy
+Flink           healthy
+Spark           healthy
+Airflow         healthy
+PostgreSQL      healthy
+ClickHouse      healthy
+Object Storage  healthy
+Nessie          healthy
+
+</code></pre>
+<p>Do not introduce a complex health-check framework just for local development.</p>
+<p>---</p>
+<h3 id="42-logging-requirements">42. Logging Requirements</h3>
+<p>The developer should be able to run:</p>
+<pre><code>
+make logs
+
+</code></pre>
+<p>for platform logs.</p>
+<p>Service-specific commands may include:</p>
+<pre><code>
+make logs-kafka
+make logs-flink
+make logs-spark
+make logs-airflow
+make logs-clickhouse
+make logs-postgres
+
+</code></pre>
+<p>Prefer:</p>
+<pre><code>
+docker compose logs -f
+
+</code></pre>
+<p>and other standard Docker tooling.</p>
+<p>---</p>
+<h3 id="43-service-dependencies">43. Service Dependencies</h3>
+<p>Model startup dependencies carefully.</p>
+<p>Example conceptual dependencies:</p>
+<pre><code>
+Kafka
+  |
+  v
+Flink
+
+PostgreSQL
+  |
+  +----&gt; Airflow metadata database
+
+Airflow
+  |
+  +----&gt; Spark job orchestration
+
+Object Storage
+  |
+  +----&gt; Spark data read/write
+  |
+  +----&gt; Iceberg / Nessie metadata and data dependencies
+
+</code></pre>
+<p>Do not assume <code>depends_on</code> means the dependency is application-ready.</p>
+<p>Where necessary use:</p>
+<ul>
+<li>Health checks</li>
+<li>Retry logic</li>
+<li>Readiness logic</li>
+</ul>
+<p>---</p>
+<h3 id="44-local-resource-management">44. Local Resource Management</h3>
+<p>This project must remain usable on a local development machine.</p>
+<p>Avoid assigning excessive:</p>
+<pre><code>
+CPU
+RAM
+Disk
+Kafka retention
+Spark executors
+Flink task slots
+Airflow scheduler/webserver resources
+PostgreSQL memory and connection limits
+
+</code></pre>
+<p>without understanding available host resources.</p>
+<p>Where appropriate make important resource values configurable through <code>.env</code>.</p>
+<p>---</p>
+<h3 id="45-developer-experience">45. Developer Experience</h3>
+<p>The target local workflow should eventually resemble:</p>
+<pre><code>
+git clone ...
+cd project
+
+cp .env.example .env
+
+make up
+make health
+make status
+make console
+
+</code></pre>
+<p>Debugging:</p>
+<pre><code>
+make logs
+make logs-kafka
+make logs-flink
+make logs-spark
+make logs-airflow
+make logs-postgres
+
+</code></pre>
+<p>Stopping the environment:</p>
+<pre><code>
+make down
+
+</code></pre>
+<p>Full destructive reset:</p>
+<pre><code>
+make clean
+
+</code></pre>
+<p><code>make clean</code> must clearly be identified as destructive if it removes persistent data.</p>
+<p>---</p>
+<h3 id="46-service-access-information">46. Service Access Information</h3>
+<p>Consider a command such as:</p>
+<pre><code>
+make console
+
+</code></pre>
+<p>to show available service endpoints.</p>
+<p>Potential example:</p>
+<pre><code>
+Kafka Bootstrap: localhost:9092
+Flink UI:        http://localhost:&lt;port&gt;
+Spark UI:        http://localhost:&lt;port&gt;
+Airflow UI:      http://localhost:8080
+PostgreSQL:      localhost:5432
+ClickHouse HTTP: http://localhost:8123
+Nessie API:      http://localhost:19120
+Object Storage:  http://localhost:9000
+
+</code></pre>
+<p>Only services actually present in the environment should be shown.</p>
+<p>---</p>
+<h3 id="47-configuration-validation">47. Configuration Validation</h3>
+<p>After approved Docker Compose changes, recommend:</p>
+<pre><code>
+docker compose config
+
+</code></pre>
+<p>before starting services.</p>
+<p>Validation commands are separate execution actions and require separate user approval.</p>
+<p>Creating a file does not automatically authorize running validation.</p>
+<p>---</p>
+<h3 id="48-python-engineering-requirements">48. Python Engineering Requirements</h3>
+<p>Python code must follow professional data engineering standards.</p>
+<p>Requirements:</p>
+<ul>
+<li>Clear package structure</li>
+<li>Type hints where useful</li>
+<li>Focused functions</li>
+<li>Separation of infrastructure and business logic</li>
+<li>Explicit configuration</li>
+<li>Structured logging</li>
+<li>Intentional exception handling</li>
+<li>Idempotent processing where required</li>
+<li>No hardcoded credentials</li>
+<li>No hardcoded environment-specific paths</li>
+<li>Testable transformation logic</li>
+<li>Minimal unnecessary abstractions</li>
+</ul>
+<p>Do not create Python services automatically.</p>
+<p>---</p>
+<h3 id="49-postgresql-requirements">49. PostgreSQL Requirements</h3>
+<p>PostgreSQL should be the relational database candidate where business/reference workloads require a relational store. It is also the initial candidate for Airflow metadata storage.</p>
+<p>Airflow metadata and project business/reference data should not be mixed indiscriminately. Where the same local PostgreSQL instance is reused, use separate databases and/or roles with clear ownership and access boundaries.</p>
+<p>Important PostgreSQL engineering requirements include:</p>
+<ul>
+<li>SQL keywords uppercase.</li>
+<li>Prefer lowercase <code>snake_case</code> identifiers and avoid unnecessary quoted mixed-case identifiers.</li>
+<li>Every <code>SELECT</code> column on its own line.</li>
+<li>Every <code>GROUP BY</code> column on its own line.</li>
+<li>Every <code>ORDER BY</code> column on its own line.</li>
+<li>Functions remain on a single line where readable.</li>
+<li>Nested functions remain on a single line where readable.</li>
+<li>Window functions remain on a single line.</li>
+<li>Use appropriate PostgreSQL data types, including <code>TIMESTAMPTZ</code> for event timestamps where timezone-aware semantics are required.</li>
+<li>Create indexes only for validated access patterns.</li>
+<li>Use transactions intentionally.</li>
+<li>Use <code>INSERT ... ON CONFLICT</code> for idempotent upsert patterns where appropriate.</li>
+<li>Apply connection pooling only where the workload justifies it.</li>
+<li>Use least-privilege database roles.</li>
+<li>Do not hardcode database credentials in source code.</li>
+</ul>
+<p>Example window function:</p>
+<pre><code>
+ROW_NUMBER() OVER (PARTITION BY delivery_id, shipment_id ORDER BY event_timestamp DESC, event_id DESC) AS row_number
+
+</code></pre>
+<p>Do not format window functions across multiple lines.</p>
+<p>Example PostgreSQL date expression:</p>
+<pre><code>
+DATE &#39;1980-01-01&#39; + offset_day AS delivery_date
+
+</code></pre>
+<p>SQL should be:</p>
+<pre><code>
+Production-grade
+Compact
+Readable
+SARGable where applicable
+Performance-conscious
+Maintainable
+
+</code></pre>
+<p>Avoid unnecessary:</p>
+<pre><code>
+SELECT *
+DISTINCT
+CTEs
+Subqueries
+JOINs
+ORDER BY
+FULL JOIN
+Correlated subqueries
+
+</code></pre>
+<p>These constructs are not forbidden; use them when they are the clearest and most performant solution for the business requirement. Existing business logic must not be changed without an explicit reason.</p>
+<p>Before using PostgreSQL for a new workload, determine:</p>
+<ul>
+<li>Whether PostgreSQL is a source-of-truth database, metadata store, reference store, or serving dependency.</li>
+<li>Database/schema boundaries.</li>
+<li>Role and permission model.</li>
+<li>Primary keys and uniqueness requirements.</li>
+<li>Index strategy.</li>
+<li>Transaction and isolation requirements.</li>
+<li>Retention and cleanup requirements.</li>
+<li>Backup/recovery expectations for non-local environments.</li>
+<li>Airflow metadata database isolation.</li>
+<li>Connection limits and pooling requirements.</li>
+</ul>
+<p>---</p>
+<h3 id="50-data-quality-requirements">50. Data Quality Requirements</h3>
+<p>The platform should eventually consider validation for:</p>
+<ul>
+<li>Missing IDs</li>
+<li>Duplicate event IDs</li>
+<li>Missing timestamps</li>
+<li>Invalid GPS coordinates</li>
+<li>Unknown delivery statuses</li>
+<li>Invalid status transitions</li>
+<li>Negative cost</li>
+<li>Impossible capacity values</li>
+<li>Delivery events arriving before shipment creation</li>
+<li>Actual delivery timestamp before departure</li>
+<li>Duplicate delivery confirmation</li>
+<li>Late-arriving data</li>
+</ul>
+<p>Do not implement a data quality framework until the requirements are finalized.</p>
+<p>---</p>
+<h3 id="51-idempotency">51. Idempotency</h3>
+<p>Both streaming and batch processing should account for duplicates and retries.</p>
+<p>Important patterns may include:</p>
+<pre><code>
+event_id
+business key
+deduplication
+upsert
+MERGE where appropriate
+checkpointing
+replay-safe transformations
+
+</code></pre>
+<p>Reprocessing the same source data should not silently produce incorrect duplicate business results.</p>
+<p>---</p>
+<h3 id="52-late-and-out-of-order-events">52. Late and Out-of-Order Events</h3>
+<p>Transportation events may arrive late or out of order.</p>
+<p>Example:</p>
+<pre><code>
+VEHICLE_DEPARTED   10:00
+IN_TRANSIT         10:05
+DELIVERY_DELAYED   10:30
+
+but Kafka receives IN_TRANSIT after DELIVERY_DELAYED.
+
+</code></pre>
+<p>The architecture must account for this.</p>
+<p>This is especially important for Flink event-time processing.</p>
+<p>---</p>
+<h3 id="53-schema-evolution">53. Schema Evolution</h3>
+<p>Streaming event serialization and schema evolution must use JSON-based event contracts.</p>
+<p>Every production-style event should include an explicit schema/version indicator, for example:</p>
+<pre><code>
+{
+  &quot;schema_version&quot;: 1,
+  &quot;event_id&quot;: &quot;...&quot;,
+  &quot;event_type&quot;: &quot;...&quot;,
+  &quot;event_timestamp&quot;: &quot;...&quot;,
+  &quot;payload&quot;: {}
+}
+</code></pre>
+<p>JSON evolution rules:</p>
+<ul>
+<li>Prefer backward-compatible additive changes.</li>
+<li>New optional fields are allowed when existing consumers can safely ignore them.</li>
+<li>Do not silently rename or remove existing fields.</li>
+<li>Do not change the semantic meaning or data type of an existing field without a versioned migration.</li>
+<li>Breaking changes require an explicit new schema version and consumer migration strategy.</li>
+<li>Required vs optional fields must be documented.</li>
+<li>Unknown fields should be handled deliberately by consumers.</li>
+<li>Producers and consumers must validate mandatory identifiers and timestamps.</li>
+<li>Replay of older JSON schema versions must remain possible where business requirements require it.</li>
+<li>Schema evolution tests should cover compatibility between supported producer and consumer versions.</li>
+</ul>
+<p>Analytical schema evolution is handled through Apache Iceberg capabilities where appropriate, with approved rules for adding, renaming, deleting, or changing columns and for partition evolution.</p>
+<p>The architecture must maintain clear JSON event contracts even though a separate external schema registry is not required for the initial local implementation.</p>
+<p>---</p>
+<h3 id="54-replayability">54. Replayability</h3>
+<p>Kafka and Data Lake design should make it possible to replay or reprocess events when necessary.</p>
+<p>Use cases:</p>
+<ul>
+<li>Bug fix</li>
+<li>New transformation</li>
+<li>Backfill</li>
+<li>KPI recalculation</li>
+<li>Incident recovery</li>
+<li>Data quality correction</li>
+</ul>
+<p>---</p>
+<h3 id="55-observability-requirements">55. Observability Requirements</h3>
+<p>Future observability should cover:</p>
+<ul>
+<li>Container health</li>
+<li>Kafka broker health</li>
+<li>Kafka consumer lag</li>
+<li>Event throughput</li>
+<li>Failed events</li>
+<li>Flink processing latency</li>
+<li>Flink checkpoint status</li>
+<li>Flink backpressure</li>
+<li>Spark job duration</li>
+<li>Spark failures</li>
+<li>Airflow scheduler health</li>
+<li>Airflow DAG run status</li>
+<li>Airflow task failures and retries</li>
+<li>Airflow scheduling delay where relevant</li>
+<li>PostgreSQL availability</li>
+<li>PostgreSQL connection usage where relevant</li>
+<li>Data Lake write failures</li>
+<li>ClickHouse availability</li>
+<li>ClickHouse ingestion latency</li>
+<li>ClickHouse query latency</li>
+<li>Data freshness</li>
+<li>Invalid event count</li>
+<li>Delayed delivery count</li>
+</ul>
+<p>Prometheus/Grafana may be considered later but must not be introduced automatically.</p>
+<p>---</p>
+<h3 id="56-testing-requirements">56. Testing Requirements</h3>
+<p>Possible test layers:</p>
+<pre><code>
+Unit tests
+Integration tests
+Schema contract tests
+Kafka producer/consumer tests
+Flink transformation tests
+Spark transformation tests
+Airflow DAG import/validation tests
+Airflow-to-Spark orchestration tests
+PostgreSQL integration tests where PostgreSQL is used by the workflow
+Data quality tests
+Docker health tests
+End-to-end tests
+
+</code></pre>
+<p>Do not automatically implement every testing layer.</p>
+<p>Testing strategy should evolve with the platform.</p>
+<p>---</p>
+<h3 id="57-security-requirements">57. Security Requirements</h3>
+<p>Even for a local lab, follow sensible security principles.</p>
+<p>Consider:</p>
+<ul>
+<li>Do not commit production secrets.</li>
+<li>Clearly mark development credentials.</li>
+<li>Least-privilege mindset.</li>
+<li>Avoid unnecessary host port exposure.</li>
+<li>Avoid Docker socket mounts.</li>
+<li>Separate internal and external endpoints.</li>
+<li>Support future TLS.</li>
+<li>Support future secret manager integration.</li>
+<li>Avoid embedding credentials in source code.</li>
+</ul>
+<p>---</p>
+<h3 id="58-production-engineering-principles">58. Production Engineering Principles</h3>
+<p>Design decisions should account for:</p>
+<ul>
+<li>Scalability</li>
+<li>Fault tolerance</li>
+<li>Idempotency</li>
+<li>Replayability</li>
+<li>Data contracts</li>
+<li>Schema evolution</li>
+<li>Data quality</li>
+<li>Observability</li>
+<li>Structured logging</li>
+<li>Metrics</li>
+<li>Health checks</li>
+<li>Security</li>
+<li>Configuration management</li>
+<li>Network isolation</li>
+<li>Retry strategies</li>
+<li>Dead-letter handling</li>
+<li>State recovery</li>
+<li>Backpressure</li>
+<li>Checkpointing</li>
+<li>Testing</li>
+<li>Maintainability</li>
+<li>Cost optimization</li>
+</ul>
+<p>However, local development must remain understandable and manageable.</p>
+<p>Do not overengineer the project.</p>
+<p>---</p>
+<h3 id="59-explicit-non-goals-for-initial-implementation">59. Explicit Non-Goals for Initial Implementation</h3>
+<p>Do not automatically introduce:</p>
+<pre><code>
+Kubernetes
+Terraform
+Helm
+Service Mesh
+Multiple metadata catalogs
+Complex CI/CD
+Large microservice architecture
+Machine learning infrastructure
+Optimization solvers
+Multiple databases solving the same purpose
+Complex security infrastructure
+
+</code></pre>
+<p>These may be introduced later only if justified.</p>
+<p>---</p>
+<h3 id="60-architecture-decision-rules">60. Architecture Decision Rules</h3>
+<p>For significant architectural decisions, present alternatives instead of silently selecting one.</p>
+<p>The following architectural choices are already approved and must not be reopened unless the user explicitly requests a change:</p>
+<pre><code>
+Streaming serialization / event contracts -&gt; JSON
+Data Lake table format                  -&gt; Apache Iceberg
+Iceberg catalog                         -&gt; Nessie
+Airflow executor                        -&gt; LocalExecutor
+BI platform                             -&gt; Superset
+
+</code></pre>
+<p>Examples of decisions that still require explicit design/approval where not yet finalized:</p>
+<pre><code>
+ClickHouse table/serving design
+PyFlink vs Java Flink
+Flink SQL vs DataStream API
+PySpark vs Scala
+PostgreSQL database/role isolation strategy
+Single Kafka topic vs domain topics
+S3-compatible object-storage implementation
+Iceberg partitioning and maintenance strategy
+Nessie namespace/reference strategy
+Superset semantic model and refresh approach
+
+</code></pre>
+<p>For each important decision provide:</p>
+<pre><code>
+Problem
+Option A
+Option B
+Advantages
+Disadvantages
+Operational impact
+Recommendation
+
+</code></pre>
+<p>Then obtain explicit user approval.</p>
+<p>---</p>
+<h3 id="61-strict-codex-approval-workflow">61. Strict Codex Approval Workflow</h3>
+<p>This requirement is mandatory for the entire project.</p>
+<p>Codex must NEVER autonomously move through an implementation sequence.</p>
+<p>Before every meaningful implementation action:</p>
+<ul>
+<li>Explain the current state.</li>
+<li>Recommend exactly one next step.</li>
+<li>Explain why.</li>
+<li>Identify files/services affected.</li>
+<li>Explain risk.</li>
+<li>Ask for approval.</li>
+</ul>
+<p>Use approximately:</p>
+<pre><code>
+Current state:
+...
+
+Recommended next step:
+...
+
+Why:
+...
+
+Files/services affected:
+...
+
+Risk:
+Low / Medium / High
+
+Approval required:
+Do you want me to proceed with this exact step?
+
+</code></pre>
+<p>---</p>
+<h3 id="62-approval-scope">62. Approval Scope</h3>
+<p>Approval applies only to the immediately proposed action.</p>
+<p>If the user says:</p>
+<pre><code>
+yes
+continue
+proceed
+ok
+do it
+
+</code></pre>
+<p>this approves only the exact preceding action.</p>
+<p>It is NOT permission to continue with subsequent actions.</p>
+<p>---</p>
+<h3 id="63-file-creation-rules">63. File Creation Rules</h3>
+<p>Before creating a new file after <code>requirement.md</code>, Codex must describe:</p>
+<pre><code>
+File:
+&lt;path&gt;
+
+Purpose:
+...
+
+Proposed design:
+...
+
+Do you approve creating this file?
+
+</code></pre>
+<p>Wait for approval.</p>
+<p>---</p>
+<h3 id="64-existing-file-modification-rules">64. Existing File Modification Rules</h3>
+<p>Never overwrite an existing file blindly.</p>
+<p>Before modifying it:</p>
+<ul>
+<li>Inspect it.</li>
+<li>Explain its current role.</li>
+<li>List exact proposed changes.</li>
+<li>Explain the reason.</li>
+<li>Ask for approval.</li>
+</ul>
+<p>Approval is limited to those stated modifications.</p>
+<p>Do not perform unrelated cleanup.</p>
+<p>---</p>
+<h3 id="65-command-execution-rules">65. Command Execution Rules</h3>
+<p>Before executing a command, show:</p>
+<pre><code>
+Command:
+&lt;command&gt;
+
+Purpose:
+...
+
+Impact:
+Read-only / Non-destructive / Changes files / Starts services / Destructive
+
+Expected result:
+...
+
+Do you approve running this command?
+
+</code></pre>
+<p>Wait for approval.</p>
+<p>---</p>
+<h3 id="66-failure-handling">66. Failure Handling</h3>
+<p>If an approved operation fails:</p>
+<ul>
+<li>Stop.</li>
+<li>Show the relevant error.</li>
+<li>Explain the likely cause.</li>
+<li>Propose one fix.</li>
+<li>Ask for approval.</li>
+</ul>
+<p>Do not enter an automatic trial-and-error loop.</p>
+<p>---</p>
+<h3 id="67-out-of-scope-issues">67. Out-of-Scope Issues</h3>
+<p>If Codex discovers another problem while performing an approved task:</p>
+<pre><code>
+I noticed an additional issue:
+
+...
+
+It is outside the currently approved scope.
+
+I have not changed it.
+
+</code></pre>
+<p>Do not silently fix it.</p>
+<p>---</p>
+<h3 id="68-destructive-operations">68. Destructive Operations</h3>
+<p>Any operation that can delete or overwrite persistent data requires explicit confirmation immediately before execution.</p>
+<p>Examples:</p>
+<pre><code>
+DELETE
+DROP
+TRUNCATE
+rm
+rm -rf
+docker compose down -v
+docker volume rm
+docker system prune
+Kafka topic deletion
+Bucket deletion
+Database reset
+Data Lake reset
+File overwrite
+
+</code></pre>
+<p>Clearly state what will be lost.</p>
+<p>---</p>
+<h3 id="69-implementation-philosophy">69. Implementation Philosophy</h3>
+<p>The project should evolve incrementally.</p>
+<p>A possible high-level roadmap may be:</p>
+<pre><code>
+Phase 1  - Repository foundation
+Phase 2  - Docker/environment foundation
+Phase 3  - Kafka
+Phase 4  - Event producer
+Phase 5  - Flink
+Phase 6  - ClickHouse serving
+Phase 7  - Data Lake
+Phase 8  - Airflow orchestration and Spark batch
+Phase 9  - Analytical serving / Superset
+Phase 10 - Testing and observability
+
+</code></pre>
+<p>This roadmap is informational only.</p>
+<p>Never execute multiple phases automatically.</p>
+<p>---</p>
+<h3 id="70-definition-of-success">70. Definition of Success</h3>
+<p>The local platform should eventually allow a Data Engineer to:</p>
+<pre><code>
+Start the platform
+Generate logistics events
+Publish events to Kafka
+Process them with Flink
+Observe current delivery state
+Persist historical/raw information
+Schedule and orchestrate daily workflows with Airflow
+Process daily data with Spark
+Use PostgreSQL safely for approved relational and Airflow metadata workloads
+Calculate transportation KPIs
+Query analytical results
+Visualize results in Superset
+Stop and restart the environment safely
+Replay historical events
+Debug individual services
+
+</code></pre>
+<p>The platform should demonstrate a realistic end-to-end modern Data Engineering architecture for transportation and delivery operations.</p>
+<p>---</p>
+<h3 id="71-final-developer-experience">71. Final Developer Experience</h3>
+<p>The desired end-state should provide a simple workflow similar to:</p>
+<pre><code>
+make help
+make up
+make health
+make status
+make console
+
+make logs-kafka
+make logs-flink
+make logs-spark
+make logs-airflow
+make logs-postgres
+
+make restart
+make down
+
+</code></pre>
+<p>Infrastructure should eventually be managed through:</p>
+<pre><code>
+Docker Compose
+Makefile
+Environment variables
+Service configuration
+Shared Docker networking
+Named volumes
+Health checks
+Internal/external endpoint configuration
+
+</code></pre>
+<p>---</p>
+<h3 id="72-final-mandatory-rule">72. Final Mandatory Rule</h3>
+<p>The repository should be built using this principle:</p>
+<blockquote>Think proactively about architecture, performance, production engineering, and the next logical step, but never perform the next meaningful action without explicit user approval.</blockquote>
+<p>For this current task, however, creation of <strong><code>requirement.md</code></strong> <strong>itself is already explicitly approved</strong>.</p>
+<p>Create only:</p>
+<pre><code>
+requirement.md
+
+</code></pre>
+<p>Populate it with the complete specification above.</p>
+<p>Do not perform any other project modification.</p>
+<p>After creating it, stop and report that the requirement document has been created.</p>
+      </article>
+    </main>
+  </body>
+</html>

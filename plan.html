@@ -1,0 +1,1771 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Codex Implementation Plan | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="docs/assets/css/documentation.css">
+    <script src="docs/assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+        <h1>Codex Implementation Plan</h1>
+        <p>Converted from plan.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#codex-implementation-plan">Codex Implementation Plan</a>
+<a href="#real-time-delivery-monitoring-and-daily-transportation-optimization">Real-Time Delivery Monitoring and Daily Transportation Optimization</a>
+<a href="#0-current-multi-application-update">0. Current Multi-Application Update</a>
+<a href="#1-purpose">1. Purpose</a>
+<a href="#2-final-architecture-decisions">2. Final Architecture Decisions</a>
+<a href="#3-target-logical-architecture">3. Target Logical Architecture</a>
+<a href="#4-mandatory-codex-execution-protocol">4. Mandatory Codex Execution Protocol</a>
+<a href="#5-repository-discovery">5. Repository Discovery</a>
+<a href="#phase-0-read-requirements-and-inspect-repository">Phase 0 - Read Requirements and Inspect Repository</a>
+<a href="#objective">Objective</a>
+<a href="#actions">Actions</a>
+<a href="#initial-commands">Initial commands</a>
+<a href="#exit-criteria">Exit Criteria</a>
+<a href="#6-remaining-architecture-decisions">6. Remaining Architecture Decisions</a>
+<a href="#phase-1-close-remaining-adrs">Phase 1 - Close Remaining ADRs</a>
+<a href="#adr-001-kafka-local-deployment">ADR-001 - Kafka Local Deployment</a>
+<a href="#adr-002-kafka-topic-strategy">ADR-002 - Kafka Topic Strategy</a>
+<a href="#adr-003-flink-implementation-api">ADR-003 - Flink Implementation API</a>
+<a href="#adr-004-s3-compatible-object-storage">ADR-004 - S3-Compatible Object Storage</a>
+<a href="#adr-005-clickhouse-physical-design">ADR-005 - ClickHouse Physical Design</a>
+<a href="#adr-006-postgresql-isolation">ADR-006 - PostgreSQL Isolation</a>
+<a href="#adr-007-iceberg-maintenance-strategy">ADR-007 - Iceberg Maintenance Strategy</a>
+<a href="#adr-008-nessie-strategy">ADR-008 - Nessie Strategy</a>
+<a href="#adr-009-superset-serving-strategy">ADR-009 - Superset Serving Strategy</a></aside>
+      <article class="doc-article">
+        <h2 id="codex-implementation-plan">Codex Implementation Plan</h2>
+<h3 id="real-time-delivery-monitoring-and-daily-transportation-optimization">Real-Time Delivery Monitoring and Daily Transportation Optimization</h3>
+<blockquote><strong>Primary source of truth:</strong> <code>requirement.md</code></blockquote>
+<p>&gt;</p>
+<blockquote>This <code>plan.md</code> defines the approved implementation sequence for Codex. It does not override business, architecture, engineering, security, or approval rules in <code>requirement.md</code>. If there is any conflict, <code>requirement.md</code> wins.</blockquote>
+<p>---</p>
+<h2 id="0-current-multi-application-update">0. Current Multi-Application Update</h2>
+<p>The scalability prompt <code>DeliveryFlow_Scalability_and_Flink_SQL_Prompts.md</code> has been applied as an implementation phase.</p>
+<p>Completed changes:</p>
+<ul>
+<li>Add control-plane style metadata folders: <code>configs/applications/</code> and <code>configs/datasets/</code>.</li>
+<li>Keep the delivery application as the default flow.</li>
+<li>Add <code>fleet</code> as a second stream application.</li>
+<li>Add versioned fleet JSON contract under <code>src/contracts/fleet/</code>.</li>
+<li>Add Java Flink SQL/Table API job for vehicle telemetry.</li>
+<li>Add ClickHouse <code>fleet</code> database tables for raw telemetry, latest state, alerts, and five-minute metrics.</li>
+<li>Extend Makefile command routing with <code>APP=fleet</code>.</li>
+<li>Extend health and smoke-test scripts so both delivery and fleet topics/paths are validated.</li>
+</ul>
+<p>Operational commands:</p>
+<pre><code>
+make submit-flink-job
+make produce
+make test-e2e
+
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+</code></pre>
+<p>This phase directly supports the 300-500 table target by moving future application-specific details into metadata and contracts instead of scattering them across unrelated scripts.</p>
+<p>---</p>
+<h2 id="1-purpose">1. Purpose</h2>
+<p>This plan translates <code>requirement.md</code> into an incremental, approval-gated implementation roadmap for the local data platform.</p>
+<p>The target platform combines:</p>
+<ul>
+<li>Real-time logistics event generation.</li>
+<li>Apache Kafka for event transport.</li>
+<li>Apache Flink for real-time processing.</li>
+<li>ClickHouse for low-latency operational and analytical serving.</li>
+<li>S3-compatible object storage for the Data Lake.</li>
+<li>Apache Iceberg for Data Lake analytical tables.</li>
+<li>Parquet as the underlying Iceberg data-file format.</li>
+<li>Nessie as the Iceberg catalog.</li>
+<li>Apache Spark for distributed batch computation.</li>
+<li>Apache Airflow with <code>LocalExecutor</code> for batch orchestration.</li>
+<li>PostgreSQL for Airflow metadata and approved relational/reference workloads.</li>
+<li>Superset for reporting and analytics.</li>
+<li>Docker Compose for local platform orchestration.</li>
+<li>Makefile for developer operations.</li>
+</ul>
+<p>The implementation must remain understandable and practical for local development while preserving production-grade engineering principles.</p>
+<p>---</p>
+<h2 id="2-final-architecture-decisions">2. Final Architecture Decisions</h2>
+<p>The following decisions are already approved and must <strong>not</strong> be reopened unless the user explicitly requests a change.</p>
+<pre><code>
+Streaming serialization / event contracts -&gt; JSON
+Schema evolution                        -&gt; Versioned JSON contracts
+Data Lake data-file format              -&gt; Parquet
+Data Lake table format                  -&gt; Apache Iceberg
+Iceberg catalog                         -&gt; Nessie
+Airflow executor                        -&gt; LocalExecutor
+BI platform                             -&gt; Superset
+Relational / Airflow metadata database  -&gt; PostgreSQL
+Operational / analytical serving        -&gt; ClickHouse
+Batch compute                           -&gt; Apache Spark
+Streaming compute                       -&gt; Apache Flink
+Streaming backbone                      -&gt; Apache Kafka
+</code></pre>
+<p>Important boundaries:</p>
+<pre><code>
+Kafka      = streaming event backbone
+Flink      = real-time stream processing
+ClickHouse = low-latency operational and analytical serving
+Data Lake  = replayable historical/raw storage
+Parquet    = physical Iceberg data files
+Iceberg    = Data Lake table format
+Nessie     = Iceberg catalog
+Spark      = distributed batch compute
+Airflow    = workflow orchestration/control plane
+PostgreSQL = Airflow metadata + explicitly approved relational/reference workloads
+Superset   = BI/reporting layer
+</code></pre>
+<p>Airflow must not replace Spark or Flink.</p>
+<p>ClickHouse must not replace the replayable Data Lake.</p>
+<p>Nessie must not replace object storage.</p>
+<p>PostgreSQL business/reference workloads must remain isolated from Airflow metadata by clear database/schema/role boundaries.</p>
+<p>---</p>
+<h2 id="3-target-logical-architecture">3. Target Logical Architecture</h2>
+<pre><code>
+                    Orders / Warehouses / Vehicles
+                               |
+                               v
+                     Transportation Planning
+                               |
+                               v
+                           Deliveries
+                               |
+                 +-------------+-------------+
+                 |                           |
+                 v                           v
+          Real-Time Path               Historical Path
+                 |                           |
+                 v                           v
+               Kafka                  S3-Compatible Storage
+                 |                           |
+                 v                           v
+               Flink                    Iceberg Tables
+                 |                           |
+                 v                         Nessie
+            ClickHouse                       |
+                 |                           v
+                 |                         Spark
+                 |                           ^
+                 |                           |
+                 |                        Airflow
+                 |                    LocalExecutor
+                 |                           |
+                 +-------------+-------------+
+                               |
+                               v
+                            Superset
+</code></pre>
+<p>PostgreSQL supports Airflow metadata and explicitly approved relational/reference workloads.</p>
+<p>---</p>
+<h2 id="4-mandatory-codex-execution-protocol">4. Mandatory Codex Execution Protocol</h2>
+<p>Codex must perform only <strong>one meaningful implementation action at a time</strong>.</p>
+<p>Before every meaningful action, Codex must provide:</p>
+<pre><code>
+Current state:
+...
+
+Recommended next step:
+...
+
+Why:
+...
+
+Files/services affected:
+...
+
+Risk:
+Low / Medium / High
+
+Command:
+&lt;exact command, when required&gt;
+
+Impact:
+Read-only / Non-destructive / Changes files / Starts services / Destructive
+
+Expected result:
+...
+
+Approval required:
+Do you want me to proceed with this exact step?
+</code></pre>
+<p>Then Codex must stop.</p>
+<p>Approval applies only to the immediately preceding action.</p>
+<p>The following responses:</p>
+<pre><code>
+yes
+continue
+proceed
+ok
+do it
+</code></pre>
+<p>approve only that exact action.</p>
+<p>They do not authorize later actions.</p>
+<p>After an approved action:</p>
+<ul>
+<li>Report exactly what changed.</li>
+<li>Report unexpected findings.</li>
+<li>Do not silently fix unrelated issues.</li>
+<li>Do not automatically perform validation.</li>
+<li>If validation is required, propose the validation as the next separate action.</li>
+<li>Ask for approval.</li>
+<li>Stop.</li>
+</ul>
+<p>If an operation fails:</p>
+<ul>
+<li>Stop.</li>
+<li>Show the relevant error.</li>
+<li>Explain the likely cause.</li>
+<li>Recommend exactly one fix.</li>
+<li>Explain affected files/services.</li>
+<li>Ask for approval.</li>
+<li>Do not automatically retry.</li>
+</ul>
+<p>Destructive operations always require immediate explicit confirmation.</p>
+<p>---</p>
+<h2 id="5-repository-discovery">5. Repository Discovery</h2>
+<h3 id="phase-0-read-requirements-and-inspect-repository">Phase 0 - Read Requirements and Inspect Repository</h3>
+<h4 id="objective">Objective</h4>
+<p>Understand the repository before creating or modifying anything.</p>
+<h4 id="actions">Actions</h4>
+<ul>
+<li>Read the complete <code>requirement.md</code>.</li>
+<li>Read the complete <code>plan.md</code>.</li>
+<li>Inspect the repository root.</li>
+<li>Identify existing:</li>
+<li>Docker files.</li>
+<li>Environment files.</li>
+<li>Makefiles.</li>
+<li>Python packaging files.</li>
+<li>Service directories.</li>
+<li>Configuration files.</li>
+<li>Documentation.</li>
+<li>Tests.</li>
+<li>Report the current state.</li>
+<li>Recommend exactly one next step.</li>
+</ul>
+<h4 id="initial-commands">Initial commands</h4>
+<p>Typical read-only inspection commands may include:</p>
+<pre><code>
+pwd
+ls -la
+find . -maxdepth 2 -type f | sort
+find . -maxdepth 2 -type d | sort
+</code></pre>
+<p>Each command still requires approval according to <code>requirement.md</code>.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Existing repository structure is understood.</li>
+<li>No existing file has been overwritten.</li>
+<li>Potential conflicts are identified.</li>
+<li>The next action is based on the real repository state.</li>
+</ul>
+<p>---</p>
+<h2 id="6-remaining-architecture-decisions">6. Remaining Architecture Decisions</h2>
+<p>Only unresolved decisions should be discussed.</p>
+<h3 id="phase-1-close-remaining-adrs">Phase 1 - Close Remaining ADRs</h3>
+<h4 id="adr-001-kafka-local-deployment">ADR-001 - Kafka Local Deployment</h4>
+<p>Determine:</p>
+<ul>
+<li>Kafka distribution/image.</li>
+<li>KRaft configuration.</li>
+<li>Broker count.</li>
+<li>Controller configuration.</li>
+<li>Internal listener.</li>
+<li>External listener.</li>
+<li>Local replication factor.</li>
+<li>Retention policy.</li>
+<li>Resource limits.</li>
+<li>Health-check strategy.</li>
+</ul>
+<p>Keep the local environment simple unless complexity solves a real requirement.</p>
+<h4 id="adr-002-kafka-topic-strategy">ADR-002 - Kafka Topic Strategy</h4>
+<p>Compare:</p>
+<pre><code>
+Single event topic
+vs
+Domain-specific topics
+</code></pre>
+<p>Potential domains:</p>
+<pre><code>
+delivery-events
+vehicle-location-events
+shipment-status-events
+warehouse-events
+transportation-plan-events
+</code></pre>
+<p>Determine for every approved topic:</p>
+<ul>
+<li>Message key.</li>
+<li>Partition key.</li>
+<li>Partition count.</li>
+<li>Ordering requirement.</li>
+<li>Retention.</li>
+<li>Consumer groups.</li>
+<li>Replay behavior.</li>
+<li>Duplicate handling.</li>
+<li>Delivery semantics.</li>
+<li>Dead-letter handling where justified.</li>
+</ul>
+<h4 id="adr-003-flink-implementation-api">ADR-003 - Flink Implementation API</h4>
+<p>Compare:</p>
+<pre><code>
+PyFlink
+vs
+Java DataStream API
+vs
+Table API / Flink SQL
+</code></pre>
+<p>Evaluate:</p>
+<ul>
+<li>Stateful processing.</li>
+<li>Event-time support.</li>
+<li>Kafka connector maturity.</li>
+<li>ClickHouse sink integration.</li>
+<li>Testing.</li>
+<li>Operational maintainability.</li>
+<li>Developer productivity.</li>
+<li>Local development complexity.</li>
+</ul>
+<h4 id="adr-004-s3-compatible-object-storage">ADR-004 - S3-Compatible Object Storage</h4>
+<p>Compare the approved local candidates such as:</p>
+<pre><code>
+MinIO
+vs
+RustFS
+vs
+another justified S3-compatible implementation
+</code></pre>
+<p>Evaluate:</p>
+<ul>
+<li>S3 API compatibility.</li>
+<li>Spark compatibility.</li>
+<li>Iceberg compatibility.</li>
+<li>Local resource consumption.</li>
+<li>Persistence.</li>
+<li>Operational simplicity.</li>
+</ul>
+<h4 id="adr-005-clickhouse-physical-design">ADR-005 - ClickHouse Physical Design</h4>
+<p>Determine:</p>
+<ul>
+<li>Event-history tables.</li>
+<li>Current-state tables.</li>
+<li>Table engines.</li>
+<li><code>ORDER BY</code> keys.</li>
+<li>Partitioning.</li>
+<li>Primary-key semantics.</li>
+<li>TTL.</li>
+<li>Retention.</li>
+<li>Insert batching.</li>
+<li>Deduplication.</li>
+<li>Version columns.</li>
+<li>Materialized views where justified.</li>
+<li>Flink-to-ClickHouse delivery semantics.</li>
+<li>Spark-to-ClickHouse publication semantics where used.</li>
+</ul>
+<h4 id="adr-006-postgresql-isolation">ADR-006 - PostgreSQL Isolation</h4>
+<p>Determine:</p>
+<ul>
+<li>Airflow metadata database.</li>
+<li>Business/reference database if required.</li>
+<li>Roles.</li>
+<li>Schemas.</li>
+<li>Permissions.</li>
+<li>Connection limits.</li>
+<li>Persistence.</li>
+<li>Credential handling.</li>
+</ul>
+<h4 id="adr-007-iceberg-maintenance-strategy">ADR-007 - Iceberg Maintenance Strategy</h4>
+<p>Determine:</p>
+<ul>
+<li>Warehouse path.</li>
+<li>Namespaces.</li>
+<li>Partition strategy.</li>
+<li>Sort strategy where useful.</li>
+<li>Snapshot retention.</li>
+<li>Snapshot expiration.</li>
+<li>Orphan-file cleanup.</li>
+<li>Compaction strategy.</li>
+<li>Schema evolution rules.</li>
+<li>Partition evolution rules.</li>
+</ul>
+<h4 id="adr-008-nessie-strategy">ADR-008 - Nessie Strategy</h4>
+<p>Determine:</p>
+<ul>
+<li>Nessie version.</li>
+<li>Catalog endpoint.</li>
+<li>Namespace strategy.</li>
+<li>Warehouse configuration.</li>
+<li>Local branch/reference strategy.</li>
+<li>Persistence.</li>
+<li>Health check.</li>
+<li>Recovery behavior.</li>
+</ul>
+<h4 id="adr-009-superset-serving-strategy">ADR-009 - Superset Serving Strategy</h4>
+<p>Determine:</p>
+<ul>
+<li>Superset source.</li>
+<li>Approved ClickHouse connectivity approach.</li>
+<li>Import vs DirectQuery where supported and justified.</li>
+<li>Semantic-model boundaries.</li>
+<li>Operational vs management datasets.</li>
+<li>Refresh strategy.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>All decisions required before infrastructure creation are documented and explicitly approved.</p>
+<p>---</p>
+<h2 id="7-repository-foundation">7. Repository Foundation</h2>
+<h3 id="phase-2-create-repository-foundation-incrementally">Phase 2 - Create Repository Foundation Incrementally</h3>
+<h4 id="objective">Objective</h4>
+<p>Create only the minimum foundation required for the next approved service.</p>
+<h4 id="candidate-structure">Candidate Structure</h4>
+<pre><code>
+project-root/
+|-- requirement.md
+|-- plan.md
+|-- .env
+|-- .env.example
+|-- .gitignore
+|-- Makefile
+|-- docker-compose.yml
+|-- docker-compose.local.yml
+|
+|-- services/
+|   |-- kafka/
+|   |-- flink/
+|   |-- spark/
+|   |-- airflow/
+|   |-- clickhouse/
+|   |-- object-storage/
+|   |-- nessie/
+|   \-- postgres/
+|
+|-- dags/
+|-- src/
+|   |-- producers/
+|   |-- streaming/
+|   \-- batch/
+|-- configs/
+|-- scripts/
+|-- tests/
+|-- docs/
+\-- data/
+</code></pre>
+<p>This is a target structure, not authorization to create all directories immediately.</p>
+<h4 id="recommended-order">Recommended Order</h4>
+<ul>
+<li>Inspect <code>.gitignore</code> if it exists.</li>
+<li>Create/update <code>.gitignore</code>.</li>
+<li>Create <code>.env.example</code>.</li>
+<li>Create the initial Docker Compose file.</li>
+<li>Create the Makefile foundation.</li>
+<li>Create service directories only when each service is approved.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Repository conventions are established.</li>
+<li>No unused structure is created.</li>
+<li>No environment-specific secrets are committed.</li>
+</ul>
+<p>---</p>
+<h2 id="8-environment-configuration">8. Environment Configuration</h2>
+<h3 id="phase-3-centralize-configuration">Phase 3 - Centralize Configuration</h3>
+<h4 id="objective">Objective</h4>
+<p>Move environment-specific configuration outside source code.</p>
+<h4 id="candidate-variables">Candidate Variables</h4>
+<pre><code>
+COMPOSE_PROJECT_NAME
+
+KAFKA_IMAGE
+KAFKA_BROKER_PORT
+KAFKA_CONTROLLER_PORT
+KAFKA_CLUSTER_ID
+KAFKA_INTERNAL_BOOTSTRAP_SERVERS
+KAFKA_EXTERNAL_BOOTSTRAP_SERVERS
+
+FLINK_IMAGE
+FLINK_JOBMANAGER_PORT
+FLINK_UI_PORT
+
+SPARK_IMAGE
+SPARK_MASTER_PORT
+SPARK_MASTER_UI_PORT
+SPARK_WORKER_MEMORY
+SPARK_WORKER_CORES
+
+AIRFLOW_IMAGE
+AIRFLOW_WEB_PORT
+AIRFLOW_EXECUTOR
+AIRFLOW_DB_NAME
+
+CLICKHOUSE_IMAGE
+CLICKHOUSE_HTTP_PORT
+CLICKHOUSE_NATIVE_PORT
+CLICKHOUSE_DATABASE
+
+S3_ENDPOINT
+S3_ACCESS_KEY
+S3_SECRET_KEY
+S3_BUCKET
+S3_REGION
+
+NESSIE_IMAGE
+NESSIE_PORT
+
+POSTGRES_IMAGE
+POSTGRES_PORT
+POSTGRES_DATABASE
+POSTGRES_USER
+POSTGRES_PASSWORD
+
+NETWORK_SUBNET
+</code></pre>
+<p>Approved Airflow executor:</p>
+<pre><code>
+AIRFLOW_EXECUTOR=LocalExecutor
+</code></pre>
+<p>Do not create variables that are not used.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>No production secrets are present.</li>
+<li>Local credentials are clearly marked development-only.</li>
+<li>Ports, images, hosts, credentials, endpoints, bucket names, and database names are not unnecessarily hardcoded.</li>
+</ul>
+<p>---</p>
+<h2 id="9-docker-networking-and-persistence">9. Docker Networking and Persistence</h2>
+<h3 id="phase-4-establish-shared-infrastructure">Phase 4 - Establish Shared Infrastructure</h3>
+<h4 id="objective">Objective</h4>
+<p>Create the Docker networking and persistence foundation.</p>
+<h4 id="shared-network">Shared Network</h4>
+<p>Candidate:</p>
+<pre><code>
+delivery-platform-net
+</code></pre>
+<h4 id="internal-service-names">Internal Service Names</h4>
+<pre><code>
+kafka:9092
+clickhouse:8123
+postgres:5432
+airflow-webserver:8080
+nessie:19120
+spark-master:7077
+</code></pre>
+<p>Never use <code>localhost</code> for container-to-container communication.</p>
+<h4 id="named-volumes">Named Volumes</h4>
+<p>Potential persistent data:</p>
+<pre><code>
+Kafka data
+ClickHouse data
+Object Storage data
+PostgreSQL data
+Airflow metadata through PostgreSQL
+Airflow logs where justified
+Nessie metadata
+</code></pre>
+<h4 id="rules">Rules</h4>
+<ul>
+<li><code>make down</code> must not delete persistent volumes.</li>
+<li>Destructive cleanup must be separate.</li>
+<li>Do not expose internal ports unless host access is required.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Shared network exists.</li>
+<li>Persistent volumes are declared.</li>
+<li>Internal/external endpoint conventions are clear.</li>
+</ul>
+<p>---</p>
+<h2 id="10-postgresql-foundation">10. PostgreSQL Foundation</h2>
+<h3 id="phase-5-configure-postgresql">Phase 5 - Configure PostgreSQL</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide a durable relational store for Airflow metadata and approved relational/reference workloads.</p>
+<h4 id="recommended-sequence">Recommended Sequence</h4>
+<pre><code>
+PostgreSQL Compose definition
+        v
+Named persistent volume
+        v
+Readiness health check
+        v
+Airflow metadata database
+        v
+Airflow role/user
+        v
+Optional isolated business/reference database
+</code></pre>
+<h4 id="isolation-principle">Isolation Principle</h4>
+<pre><code>
+PostgreSQL Instance
+|-- airflow_metadata
+|   \-- airflow role
+\-- logistics_reference
+    \-- application role
+</code></pre>
+<p>The exact second database is created only if required.</p>
+<h4 id="validation">Validation</h4>
+<p>Potential checks:</p>
+<ul>
+<li>PostgreSQL readiness.</li>
+<li>Database connectivity.</li>
+<li>Role isolation.</li>
+<li>Persistent restart behavior.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>PostgreSQL is healthy.</li>
+<li>Airflow metadata storage is isolated.</li>
+<li>Credentials are environment-driven.</li>
+<li>Persistence survives normal restart.</li>
+</ul>
+<p>---</p>
+<h2 id="11-kafka-foundation">11. Kafka Foundation</h2>
+<h3 id="phase-6-configure-kafka">Phase 6 - Configure Kafka</h3>
+<h4 id="objective">Objective</h4>
+<p>Establish the event backbone.</p>
+<h4 id="recommended-sequence">Recommended Sequence</h4>
+<pre><code>
+Kafka Compose service
+        v
+KRaft configuration
+        v
+Internal listener
+        v
+External listener
+        v
+Persistent volume
+        v
+Readiness health check
+        v
+Configuration validation
+        v
+Service startup
+        v
+Topic provisioning
+        v
+Producer/consumer smoke test
+</code></pre>
+<p>Every arrow may represent a separate approval-gated action.</p>
+<h4 id="validation">Validation</h4>
+<p>Potential validations:</p>
+<pre><code>
+docker compose config
+docker compose up -d kafka
+docker compose ps
+</code></pre>
+<p>Do not execute these automatically.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Kafka is healthy.</li>
+<li>Internal and external connectivity work.</li>
+<li>Approved topics exist.</li>
+<li>A test producer/consumer exchange succeeds.</li>
+</ul>
+<p>---</p>
+<h2 id="12-object-storage-foundation">12. Object Storage Foundation</h2>
+<h3 id="phase-7-configure-s3-compatible-storage">Phase 7 - Configure S3-Compatible Storage</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide the physical storage layer for Iceberg data and metadata files.</p>
+<h4 id="responsibilities">Responsibilities</h4>
+<p>Object storage will contain:</p>
+<pre><code>
+Parquet data files
+Iceberg metadata files
+Iceberg manifests
+Iceberg manifest lists
+</code></pre>
+<p>Nessie remains the catalog.</p>
+<h4 id="recommended-sequence">Recommended Sequence</h4>
+<pre><code>
+Object-storage service
+        v
+Persistent volume
+        v
+Health check
+        v
+Development credentials
+        v
+Warehouse bucket
+        v
+Spark S3 connectivity test
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Storage is healthy.</li>
+<li>S3 API is reachable from containers.</li>
+<li>Warehouse bucket exists.</li>
+<li>Spark-compatible credentials/endpoints are available.</li>
+</ul>
+<p>---</p>
+<h2 id="13-nessie-foundation">13. Nessie Foundation</h2>
+<h3 id="phase-8-configure-nessie">Phase 8 - Configure Nessie</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide the approved Iceberg catalog.</p>
+<h4 id="architecture">Architecture</h4>
+<pre><code>
+Spark
+  |
+  v
+Nessie Catalog
+  |
+  v
+Iceberg metadata references
+  |
+  v
+S3-Compatible Object Storage
+</code></pre>
+<h4 id="recommended-sequence">Recommended Sequence</h4>
+<pre><code>
+Nessie service
+    v
+Version compatibility validation
+    v
+Catalog endpoint
+    v
+Persistence configuration
+    v
+Health check
+    v
+Warehouse/catalog connectivity test
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Nessie is healthy.</li>
+<li>Spark can reach the catalog endpoint.</li>
+<li>Warehouse path is correctly configured.</li>
+<li>Catalog state persists as intended.</li>
+</ul>
+<p>---</p>
+<h2 id="14-iceberg-bootstrap">14. Iceberg Bootstrap</h2>
+<h3 id="phase-9-validate-spark-nessie-iceberg-s3">Phase 9 - Validate Spark -&gt; Nessie -&gt; Iceberg -&gt; S3</h3>
+<h4 id="objective">Objective</h4>
+<p>Prove the analytical storage foundation before business batch code is written.</p>
+<h4 id="minimum-test">Minimum Test</h4>
+<pre><code>
+Spark
+  v
+Nessie
+  v
+Create Iceberg namespace
+  v
+Create Iceberg test table
+  v
+Write records
+  v
+Parquet files stored in S3-compatible storage
+  v
+Read the same Iceberg table
+</code></pre>
+<h4 id="validate">Validate</h4>
+<ul>
+<li>Table registration in Nessie.</li>
+<li>Metadata files in object storage.</li>
+<li>Parquet data files in object storage.</li>
+<li>Read-after-write.</li>
+<li>Schema evolution test.</li>
+<li>Snapshot behavior.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>The complete Spark/Nessie/Iceberg/S3 integration works reliably.</p>
+<p>---</p>
+<h2 id="15-clickhouse-foundation">15. ClickHouse Foundation</h2>
+<h3 id="phase-10-configure-clickhouse">Phase 10 - Configure ClickHouse</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide low-latency operational and analytical serving.</p>
+<h4 id="infrastructure-sequence">Infrastructure Sequence</h4>
+<pre><code>
+ClickHouse service
+    v
+Persistent volume
+    v
+HTTP endpoint
+    v
+Native endpoint
+    v
+Health check
+</code></pre>
+<h4 id="initial-data-concepts">Initial Data Concepts</h4>
+<pre><code>
+delivery_events
+vehicle_location_events
+
+delivery_current_state
+vehicle_current_state
+shipment_current_state
+route_current_state
+</code></pre>
+<p>These are conceptual names until the physical schemas are approved.</p>
+<h4 id="important-modeling-rule">Important Modeling Rule</h4>
+<pre><code>
+Immutable event history
+!=
+Latest operational state
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>ClickHouse is healthy.</li>
+<li>Storage is persistent.</li>
+<li>Approved database exists.</li>
+<li>Initial approved table design is documented.</li>
+</ul>
+<p>---</p>
+<h2 id="16-spark-runtime">16. Spark Runtime</h2>
+<h3 id="phase-11-configure-spark">Phase 11 - Configure Spark</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide the distributed batch compute engine.</p>
+<h4 id="local-topology">Local Topology</h4>
+<pre><code>
+Spark Master
+     |
+     +---- Spark Worker
+</code></pre>
+<h4 id="required-connectivity">Required Connectivity</h4>
+<pre><code>
+Spark -&gt; Object Storage
+Spark -&gt; Nessie
+Spark -&gt; Iceberg
+Spark -&gt; ClickHouse where publication is approved
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Spark Master is healthy.</li>
+<li>Worker is registered.</li>
+<li>Spark can read/write Iceberg through Nessie.</li>
+<li>Resource settings are appropriate for the local machine.</li>
+</ul>
+<p>---</p>
+<h2 id="17-airflow-foundation">17. Airflow Foundation</h2>
+<h3 id="phase-12-configure-airflow-with-localexecutor">Phase 12 - Configure Airflow with LocalExecutor</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide workflow orchestration for daily batch processing.</p>
+<h4 id="approved-executor">Approved Executor</h4>
+<pre><code>
+LocalExecutor
+</code></pre>
+<p>Do not introduce CeleryExecutor, Redis, RabbitMQ, or KubernetesExecutor unless explicitly approved later.</p>
+<h4 id="topology">Topology</h4>
+<pre><code>
+                PostgreSQL
+                    ^
+                    |
+             Airflow Metadata
+                    |
+          +---------+---------+
+          |                   |
+     Webserver            Scheduler
+                              |
+                        LocalExecutor
+                              |
+                              v
+                           Spark
+</code></pre>
+<h4 id="recommended-sequence">Recommended Sequence</h4>
+<pre><code>
+Airflow image/configuration
+        v
+PostgreSQL metadata connection
+        v
+Metadata DB migration/init
+        v
+Webserver
+        v
+Scheduler
+        v
+LocalExecutor validation
+        v
+Simple test DAG
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Airflow UI is reachable.</li>
+<li>Scheduler is healthy.</li>
+<li>LocalExecutor runs a test task.</li>
+<li>Metadata persists in PostgreSQL.</li>
+<li>No unnecessary distributed executor dependencies exist.</li>
+</ul>
+<p>---</p>
+<h2 id="18-airflow-spark-integration">18. Airflow -&gt; Spark Integration</h2>
+<h3 id="phase-13-validate-orchestration">Phase 13 - Validate Orchestration</h3>
+<h4 id="objective">Objective</h4>
+<p>Prove that Airflow can orchestrate Spark without business complexity.</p>
+<h4 id="test-flow">Test Flow</h4>
+<pre><code>
+Airflow DAG
+    v
+Submit simple Spark job
+    v
+Spark executes
+    v
+Task success returned to Airflow
+</code></pre>
+<h4 id="determine">Determine</h4>
+<ul>
+<li>Spark submission mechanism.</li>
+<li>Retry behavior.</li>
+<li>Timeouts.</li>
+<li>Logs.</li>
+<li>Exit-code handling.</li>
+<li>Idempotency.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>A simple Spark job is successfully triggered, monitored, and reported by Airflow.</p>
+<p>---</p>
+<h2 id="19-flink-foundation">19. Flink Foundation</h2>
+<h3 id="phase-14-configure-flink">Phase 14 - Configure Flink</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide the real-time stream-processing engine.</p>
+<h4 id="topology">Topology</h4>
+<pre><code>
+Kafka
+  v
+Flink JobManager
+  v
+Flink TaskManager
+  v
+ClickHouse
+</code></pre>
+<h4 id="required-design-before-business-logic">Required Design Before Business Logic</h4>
+<ul>
+<li>Event time.</li>
+<li>Processing time.</li>
+<li>Watermarks.</li>
+<li>Late events.</li>
+<li>Out-of-order events.</li>
+<li>Keying strategy.</li>
+<li>State backend.</li>
+<li>Checkpointing.</li>
+<li>Savepoints.</li>
+<li>Recovery.</li>
+<li>Delivery semantics.</li>
+<li>Windowing.</li>
+<li>Backpressure.</li>
+<li>Kafka source semantics.</li>
+<li>ClickHouse sink semantics.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>JobManager is healthy.</li>
+<li>TaskManager is registered.</li>
+<li>Kafka connectivity works.</li>
+<li>ClickHouse connectivity works.</li>
+</ul>
+<p>---</p>
+<h2 id="20-json-event-contracts">20. JSON Event Contracts</h2>
+<h3 id="phase-15-define-versioned-event-contracts">Phase 15 - Define Versioned Event Contracts</h3>
+<h4 id="objective">Objective</h4>
+<p>Create stable JSON contracts before producers and consumers are implemented.</p>
+<h4 id="canonical-envelope">Canonical Envelope</h4>
+<pre><code>
+{
+  &quot;schema_version&quot;: 1,
+  &quot;event_id&quot;: &quot;uuid&quot;,
+  &quot;event_type&quot;: &quot;VEHICLE_DEPARTED&quot;,
+  &quot;event_timestamp&quot;: &quot;2026-08-08T10:00:00Z&quot;,
+  &quot;order_id&quot;: &quot;optional&quot;,
+  &quot;shipment_id&quot;: &quot;optional&quot;,
+  &quot;delivery_id&quot;: &quot;optional&quot;,
+  &quot;vehicle_id&quot;: &quot;optional&quot;,
+  &quot;source&quot;: &quot;event-producer&quot;,
+  &quot;payload&quot;: {}
+}
+</code></pre>
+<h4 id="initial-event-types">Initial Event Types</h4>
+<pre><code>
+ORDER_LOADED
+VEHICLE_DEPARTED
+IN_TRANSIT
+DELIVERY_DELAYED
+DELIVERED
+</code></pre>
+<h4 id="json-evolution-rules">JSON Evolution Rules</h4>
+<ul>
+<li>Prefer backward-compatible additive changes.</li>
+<li>New optional fields may be added when old consumers can ignore them.</li>
+<li>Never silently rename/remove fields.</li>
+<li>Never silently change field type or meaning.</li>
+<li>Breaking changes require a new explicit schema version.</li>
+<li>Required and optional fields must be documented.</li>
+<li>Consumers must deliberately handle unknown fields.</li>
+<li>Older supported schema versions must remain replayable.</li>
+<li>Compatibility tests must cover supported producer/consumer versions.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Event envelope is approved.</li>
+<li>Initial domain schemas are approved.</li>
+<li>Versioning rules are documented.</li>
+<li>Contract tests exist or are planned.</li>
+</ul>
+<p>---</p>
+<h2 id="21-synthetic-event-producer">21. Synthetic Event Producer</h2>
+<h3 id="phase-16-implement-logistics-event-generator">Phase 16 - Implement Logistics Event Generator</h3>
+<h4 id="objective">Objective</h4>
+<p>Generate realistic local logistics activity.</p>
+<h4 id="generator-domains">Generator Domains</h4>
+<pre><code>
+Orders
+Shipments
+Deliveries
+Vehicles
+Drivers
+Warehouses
+Routes
+Transportation plans
+GPS positions
+Capacity
+Delivery status transitions
+</code></pre>
+<h4 id="flow">Flow</h4>
+<pre><code>
+Python Producer
+      v
+Versioned JSON Events
+      v
+Kafka
+</code></pre>
+<h4 id="engineering-requirements">Engineering Requirements</h4>
+<ul>
+<li>Structured logging.</li>
+<li>Explicit config.</li>
+<li>Reproducible test data where useful.</li>
+<li>No hardcoded credentials.</li>
+<li>Type hints where useful.</li>
+<li>Clear package structure.</li>
+<li>Testable business logic.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Valid events are generated.</li>
+<li>Events can be published to Kafka.</li>
+<li>Event IDs are unique.</li>
+<li>Schema validation passes.</li>
+</ul>
+<p>---</p>
+<h2 id="22-streaming-pipeline">22. Streaming Pipeline</h2>
+<h3 id="phase-17-implement-kafka-flink-clickhouse">Phase 17 - Implement Kafka -&gt; Flink -&gt; ClickHouse</h3>
+<h4 id="objective">Objective</h4>
+<p>Build the first complete real-time processing path.</p>
+<h4 id="flow">Flow</h4>
+<pre><code>
+Producer
+   v
+Kafka
+   v
+Flink
+   v
+Deserialize JSON
+   v
+Validate
+   v
+Keyed/stateful processing
+   v
+ETA / delay / route logic
+   v
+ClickHouse
+</code></pre>
+<h4 id="initial-streaming-capabilities">Initial Streaming Capabilities</h4>
+<ul>
+<li>Track vehicle location.</li>
+<li>Track delivery state.</li>
+<li>Track shipment state.</li>
+<li>Detect delayed deliveries.</li>
+<li>Calculate simplified ETA.</li>
+<li>Detect route deviation using approved local model.</li>
+<li>Monitor active workload.</li>
+<li>Identify problematic shipments.</li>
+</ul>
+<h4 id="validation">Validation</h4>
+<pre><code>
+Generate event
+-&gt; Kafka receives event
+-&gt; Flink processes event
+-&gt; ClickHouse contains expected result
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>The real-time path works end to end.</p>
+<p>---</p>
+<h2 id="23-raw-historical-persistence">23. Raw Historical Persistence</h2>
+<h3 id="phase-18-persist-raw-data-into-iceberg">Phase 18 - Persist Raw Data into Iceberg</h3>
+<h4 id="objective">Objective</h4>
+<p>Create the replayable historical source.</p>
+<h4 id="candidate-raw-tables">Candidate Raw Tables</h4>
+<pre><code>
+raw_delivery_events
+gps_events
+transportation_plans
+warehouse_events
+vehicle_events
+shipment_events
+delivery_confirmation_events
+</code></pre>
+<h4 id="storage">Storage</h4>
+<pre><code>
+Iceberg table
+    v
+Parquet files
+    v
+S3-compatible object storage
+
+Catalog:
+Nessie
+</code></pre>
+<h4 id="requirements">Requirements</h4>
+<ul>
+<li>Replay-safe writes.</li>
+<li>Idempotency.</li>
+<li>Event IDs.</li>
+<li>Schema evolution.</li>
+<li>Partition strategy.</li>
+<li>Snapshot retention.</li>
+<li>Compaction plan.</li>
+<li>Small-file strategy.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Raw event history is queryable through Iceberg.</li>
+<li>Data is replayable.</li>
+<li>Duplicate/retry behavior is understood.</li>
+</ul>
+<p>---</p>
+<h2 id="24-spark-batch-processing">24. Spark Batch Processing</h2>
+<h3 id="phase-19-implement-daily-batch-computation">Phase 19 - Implement Daily Batch Computation</h3>
+<h4 id="objective">Objective</h4>
+<p>Process completed and historical transportation data.</p>
+<h4 id="flow">Flow</h4>
+<pre><code>
+Iceberg Raw
+    v
+Spark
+    v
+Clean / Validate / Deduplicate
+    v
+Silver
+    v
+Aggregate
+    v
+Gold KPI Tables
+</code></pre>
+<h4 id="minimum-kpi-scope">Minimum KPI Scope</h4>
+<ul>
+<li>Completed deliveries.</li>
+<li>Total distance.</li>
+<li>Vehicle utilization.</li>
+<li>Planned vs actual delivery performance.</li>
+<li>Average delivery duration.</li>
+<li>Delayed deliveries.</li>
+<li>Delay rate.</li>
+<li>On-time delivery rate.</li>
+<li>Frequently delayed routes.</li>
+<li>Warehouse performance.</li>
+<li>Regional performance.</li>
+<li>Transportation cost.</li>
+<li>Cost per delivery.</li>
+<li>Historical delivery KPIs.</li>
+<li>Inputs for next-day planning.</li>
+</ul>
+<h4 id="candidate-outputs">Candidate Outputs</h4>
+<pre><code>
+daily_delivery_kpi
+vehicle_utilization_daily
+route_performance_daily
+warehouse_performance_daily
+transportation_cost_daily
+delivery_delay_analysis
+</code></pre>
+<p>Names remain conceptual until physical schemas are approved.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Spark reads Iceberg reliably.</li>
+<li>Batch outputs are deterministic.</li>
+<li>Reruns do not create incorrect duplicate results.</li>
+<li>KPI results are validated.</li>
+</ul>
+<p>---</p>
+<h2 id="25-airflow-daily-workflow">25. Airflow Daily Workflow</h2>
+<h3 id="phase-20-implement-production-style-daily-dag">Phase 20 - Implement Production-Style Daily DAG</h3>
+<h4 id="objective">Objective</h4>
+<p>Move the proven Spark workflow under Airflow orchestration.</p>
+<h4 id="conceptual-dag">Conceptual DAG</h4>
+<pre><code>
+check_source_readiness
+        v
+run_spark_daily_batch
+        v
+validate_outputs
+        v
+run_data_quality_checks
+        v
+publish_analytical_outputs
+        v
+publish_to_clickhouse_if_approved
+        v
+complete
+</code></pre>
+<h4 id="determine">Determine</h4>
+<ul>
+<li>Schedule.</li>
+<li>Timezone.</li>
+<li>Catchup.</li>
+<li>Backfill.</li>
+<li>Retries.</li>
+<li>Retry delays.</li>
+<li>Timeouts.</li>
+<li>Spark submission.</li>
+<li>Logging.</li>
+<li>Failure behavior.</li>
+<li>Idempotency.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Daily DAG succeeds.</li>
+<li>Failed tasks are visible.</li>
+<li>Safe retries work.</li>
+<li>Backfill works for approved historical dates.</li>
+<li>Duplicate analytical results are not created.</li>
+</ul>
+<p>---</p>
+<h2 id="26-analytical-publication">26. Analytical Publication</h2>
+<h3 id="phase-21-publish-serving-data">Phase 21 - Publish Serving Data</h3>
+<h4 id="objective">Objective</h4>
+<p>Expose analytical results efficiently for BI.</p>
+<h4 id="candidate-flow">Candidate Flow</h4>
+<pre><code>
+Spark Gold Iceberg Tables
+          v
+Approved Publication Step
+          v
+ClickHouse
+          v
+Superset
+</code></pre>
+<p>The exact publication model must be approved.</p>
+<h4 id="determine">Determine</h4>
+<ul>
+<li>Which datasets stay only in Iceberg.</li>
+<li>Which datasets are published to ClickHouse.</li>
+<li>Refresh cadence.</li>
+<li>Incremental publication.</li>
+<li>Deduplication.</li>
+<li>Data freshness SLA.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>BI-ready datasets exist.</li>
+<li>Publication is idempotent.</li>
+<li>Query latency is appropriate.</li>
+</ul>
+<p>---</p>
+<h2 id="27-superset">27. Superset</h2>
+<h3 id="phase-22-prepare-superset-reporting">Phase 22 - Prepare Superset Reporting</h3>
+<h4 id="objective">Objective</h4>
+<p>Provide operational and management analytics.</p>
+<p>Superset is a Docker Compose service in this local platform, and the repository includes a dedicated <code>superset-importer</code> service for BI-as-code imports.</p>
+<p>The repository should provide:</p>
+<ul>
+<li>Approved analytical views/tables.</li>
+<li>Connection documentation.</li>
+<li>Version-controlled Superset BI assets.</li>
+<li><code>make import-superset-assets</code> for importing database, dataset, chart, and dashboard definitions.</li>
+<li>Chart-level adhoc metric generation from readable YAML metric names.</li>
+<li>Dataset temporal metadata for BI time columns such as <code>business_date</code> and <code>event_hour</code>.</li>
+<li>Timeseries chart parameters such as <code>x_axis</code>, <code>granularity_sqla</code>, and <code>time_grain_sqla</code>.</li>
+<li>Refresh approach.</li>
+<li>Semantic-model guidance.</li>
+<li>KPI definitions.</li>
+</ul>
+<h3 id="operational-dashboard">Operational Dashboard</h3>
+<p>Potential metrics:</p>
+<ul>
+<li>Active deliveries.</li>
+<li>Current vehicle locations.</li>
+<li>Current ETA.</li>
+<li>Delayed deliveries.</li>
+<li>Route deviations.</li>
+<li>Problematic shipments.</li>
+<li>Active vehicle workload.</li>
+</ul>
+<h3 id="management-dashboard">Management Dashboard</h3>
+<p>Potential metrics:</p>
+<ul>
+<li>Completed deliveries.</li>
+<li>On-time rate.</li>
+<li>Delayed rate.</li>
+<li>Average delivery duration.</li>
+<li>Vehicle utilization.</li>
+<li>Route performance.</li>
+<li>Warehouse performance.</li>
+<li>Regional performance.</li>
+<li>Transportation cost.</li>
+<li>Cost per delivery.</li>
+<li>Daily/weekly/monthly trends.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<ul>
+<li>Superset can access approved serving data.</li>
+<li>Operational and management concerns are separated.</li>
+<li>KPI definitions match the approved business logic.</li>
+<li>Imported charts do not fail with missing saved metric errors.</li>
+<li>Timeseries charts have an explicit datetime column configuration.</li>
+</ul>
+<p>---</p>
+<h2 id="28-data-quality">28. Data Quality</h2>
+<h3 id="phase-23-implement-critical-data-quality-rules">Phase 23 - Implement Critical Data Quality Rules</h3>
+<h4 id="initial-checks">Initial Checks</h4>
+<ul>
+<li>Missing IDs.</li>
+<li>Duplicate event IDs.</li>
+<li>Missing timestamps.</li>
+<li>Invalid GPS coordinates.</li>
+<li>Unknown statuses.</li>
+<li>Invalid status transitions.</li>
+<li>Negative cost.</li>
+<li>Impossible capacity.</li>
+<li>Delivery event before shipment creation.</li>
+<li>Actual delivery before departure.</li>
+<li>Duplicate delivery confirmation.</li>
+<li>Late-arriving data.</li>
+</ul>
+<p>Do not introduce a large data-quality framework unless justified.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>Critical data-quality failures are detectable and visible.</p>
+<p>---</p>
+<h2 id="29-idempotency-replay-and-recovery">29. Idempotency, Replay, and Recovery</h2>
+<h3 id="phase-24-validate-failure-safety">Phase 24 - Validate Failure Safety</h3>
+<h4 id="required-scenarios">Required Scenarios</h4>
+<pre><code>
+Same Kafka event twice
+-&gt; no incorrect duplicate business result
+
+Flink restart
+-&gt; state recovers
+
+Same Spark source twice
+-&gt; deterministic output
+
+Airflow retry
+-&gt; no duplicate publication
+
+Airflow backfill
+-&gt; correct historical partition/date
+
+Kafka replay
+-&gt; derived state can be rebuilt
+
+Iceberg replay/reprocessing
+-&gt; analytical tables can be recalculated
+</code></pre>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>The platform behaves safely under retry, restart, duplicate input, and historical replay.</p>
+<p>---</p>
+<h2 id="30-testing">30. Testing</h2>
+<h3 id="phase-25-add-tests-incrementally">Phase 25 - Add Tests Incrementally</h3>
+<h4 id="candidate-layers">Candidate Layers</h4>
+<pre><code>
+Unit tests
+Integration tests
+JSON contract tests
+Kafka producer/consumer tests
+Flink transformation tests
+Spark transformation tests
+Airflow DAG import tests
+Airflow-to-Spark orchestration tests
+PostgreSQL integration tests
+Iceberg integration tests
+Nessie catalog tests
+ClickHouse integration tests
+Data quality tests
+Docker health tests
+End-to-end tests
+</code></pre>
+<p>Do not implement every layer automatically.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>Tests exist where they protect critical behavior and architecture boundaries.</p>
+<p>---</p>
+<h2 id="31-observability">31. Observability</h2>
+<h3 id="phase-26-add-practical-observability">Phase 26 - Add Practical Observability</h3>
+<h4 id="minimum-signals">Minimum Signals</h4>
+<p>Kafka:</p>
+<ul>
+<li>Broker health.</li>
+<li>Consumer lag.</li>
+<li>Event throughput.</li>
+<li>Failed events.</li>
+</ul>
+<p>Flink:</p>
+<ul>
+<li>Processing latency.</li>
+<li>Checkpoint status.</li>
+<li>Backpressure.</li>
+<li>Job failures.</li>
+</ul>
+<p>Spark:</p>
+<ul>
+<li>Job duration.</li>
+<li>Failures.</li>
+</ul>
+<p>Airflow:</p>
+<ul>
+<li>Scheduler health.</li>
+<li>DAG status.</li>
+<li>Task failures.</li>
+<li>Retries.</li>
+<li>Scheduling delay.</li>
+</ul>
+<p>PostgreSQL:</p>
+<ul>
+<li>Availability.</li>
+<li>Connection usage where relevant.</li>
+</ul>
+<p>ClickHouse:</p>
+<ul>
+<li>Availability.</li>
+<li>Ingestion latency.</li>
+<li>Query latency.</li>
+</ul>
+<p>Data Lake:</p>
+<ul>
+<li>Write failures.</li>
+<li>Data freshness.</li>
+</ul>
+<p>Business:</p>
+<ul>
+<li>Invalid event count.</li>
+<li>Delayed delivery count.</li>
+</ul>
+<p>Do not automatically introduce Prometheus/Grafana.</p>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>Major failures can be detected and debugged using the existing platform tooling.</p>
+<p>---</p>
+<h2 id="32-makefile-and-developer-experience">32. Makefile and Developer Experience</h2>
+<h3 id="phase-27-complete-developer-interface">Phase 27 - Complete Developer Interface</h3>
+<h4 id="desired-commands">Desired Commands</h4>
+<pre><code>
+make help
+
+make up
+make down
+make restart
+
+make status
+make ps
+make health
+
+make logs
+make logs-kafka
+make logs-flink
+make logs-spark
+make logs-airflow
+make logs-clickhouse
+make logs-postgres
+make logs-storage
+make logs-nessie
+
+make console
+
+make import-superset-assets
+</code></pre>
+<h4 id="rules">Rules</h4>
+<ul>
+<li><code>make down</code> must not delete persistent data.</li>
+<li><code>make clean</code> must explicitly state if it deletes persistent data.</li>
+<li>Destructive targets must never run automatically.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>A developer can operate the platform without remembering long Docker commands. Superset BI assets can be imported from the repository without manual UI rebuilding. The importer rebuilds the <code>superset-importer</code> image before running so code and YAML updates are used consistently.</p>
+<p>---</p>
+<h2 id="33-environment-acceptance-test">33. Environment Acceptance Test</h2>
+<h3 id="phase-28-validate-the-complete-local-environment">Phase 28 - Validate the Complete Local Environment</h3>
+<p>The local environment is ready only when all approved services and integrations are healthy.</p>
+<h4 id="service-health">Service Health</h4>
+<pre><code>
+Kafka          healthy
+Flink          healthy
+Spark          healthy
+Airflow        healthy
+PostgreSQL     healthy
+ClickHouse     healthy
+Object Storage healthy
+Nessie         healthy
+</code></pre>
+<h4 id="connectivity">Connectivity</h4>
+<pre><code>
+Kafka internal DNS works
+Flink -&gt; Kafka works
+Flink -&gt; ClickHouse works
+
+Spark -&gt; Object Storage works
+Spark -&gt; Nessie works
+Spark -&gt; Iceberg works
+Iceberg -&gt; Parquet files in object storage works
+
+Airflow -&gt; PostgreSQL works
+Airflow -&gt; Spark works
+
+Superset approved analytical access is documented/tested
+</code></pre>
+<h4 id="persistence">Persistence</h4>
+<ul>
+<li>PostgreSQL survives normal restart.</li>
+<li>ClickHouse survives normal restart.</li>
+<li>Kafka state behaves according to approved persistence.</li>
+<li>Object-storage data survives normal restart.</li>
+<li>Nessie metadata survives normal restart.</li>
+</ul>
+<h4 id="exit-criteria">Exit Criteria</h4>
+<p>Infrastructure is stable enough for end-to-end business validation.</p>
+<p>---</p>
+<h2 id="34-end-to-end-business-demo">34. End-to-End Business Demo</h2>
+<h3 id="phase-29-validate-the-full-business-scenario">Phase 29 - Validate the Full Business Scenario</h3>
+<h4 id="streaming-scenario">Streaming Scenario</h4>
+<pre><code>
+Baku Warehouse
+      v
+Truck with customer orders
+      v
+GPS + Delivery Events
+      v
+Versioned JSON
+      v
+Kafka
+      v
+Flink
+      v
+Delay / ETA / State Processing
+      v
+ClickHouse
+      v
+Operational Analytics
+</code></pre>
+<h4 id="historical-scenario">Historical Scenario</h4>
+<pre><code>
+Raw Events
+    v
+Iceberg + Parquet
+    v
+Nessie
+    v
+Airflow LocalExecutor
+    v
+Spark
+    v
+Daily KPI Tables
+    v
+ClickHouse / Approved Serving
+    v
+Superset
+</code></pre>
+<h4 id="expected-business-demonstration">Expected Business Demonstration</h4>
+<p>The demo should prove:</p>
+<ul>
+<li>A vehicle can be tracked.</li>
+<li>Delivery state can be updated.</li>
+<li>A delayed delivery can be detected.</li>
+<li>Raw events are persisted.</li>
+<li>Historical events are replayable.</li>
+<li>Daily batch KPIs are calculated.</li>
+<li>Superset can consume approved analytical results.</li>
+<li>Restart/retry does not corrupt business results.</li>
+</ul>
+<p>---</p>
+<h2 id="35-final-definition-of-done">35. Final Definition of Done</h2>
+<p>The project is considered functionally complete when:</p>
+<pre><code>
+[ ] Docker Compose starts the approved local platform.
+
+[ ] Kafka accepts versioned JSON events.
+
+[ ] Synthetic logistics events can be generated.
+
+[ ] Flink processes real-time events.
+
+[ ] Event-time, late-event, and out-of-order handling are implemented.
+
+[ ] ClickHouse exposes current delivery and vehicle state.
+
+[ ] Delay detection works.
+
+[ ] ETA calculation works using the approved initial model.
+
+[ ] Raw historical data is persisted in Apache Iceberg.
+
+[ ] Iceberg stores Parquet data files in S3-compatible object storage.
+
+[ ] Nessie manages the Iceberg catalog.
+
+[ ] PostgreSQL reliably stores Airflow metadata.
+
+[ ] Airflow uses LocalExecutor.
+
+[ ] Airflow orchestrates Spark batch processing.
+
+[ ] Spark calculates approved daily transportation KPIs.
+
+[ ] Analytical publication is idempotent.
+
+[ ] Superset can consume approved analytical datasets.
+
+[ ] Duplicate inputs do not create incorrect business results.
+
+[ ] Kafka/Data Lake replay is possible.
+
+[ ] Flink recovery works.
+
+[ ] Spark reruns are deterministic.
+
+[ ] Airflow retries/backfills are safe.
+
+[ ] Persistent data survives normal restart.
+
+[ ] `make health` reports major service readiness.
+
+[ ] Individual service logs are easy to access.
+
+[ ] End-to-end streaming and batch scenarios pass.
+</code></pre>
+<p>---</p>
+<h2 id="36-recommended-exact-implementation-order">36. Recommended Exact Implementation Order</h2>
+<pre><code>
+00  Read requirement.md
+01  Read plan.md
+02  Inspect repository
+03  Resolve remaining ADRs
+
+04  Repository foundation
+05  .gitignore
+06  .env.example
+07  Docker Compose foundation
+08  Shared network / volumes
+09  Makefile foundation
+
+10  PostgreSQL
+11  Kafka
+12  Object Storage
+13  Nessie
+14  Spark
+15  Spark -&gt; Nessie -&gt; Iceberg -&gt; S3 validation
+16  ClickHouse
+17  Airflow LocalExecutor
+18  Airflow -&gt; Spark validation
+19  Flink
+
+20  JSON event contracts
+21  Synthetic event producer
+22  Producer -&gt; Kafka validation
+23  Kafka -&gt; Flink validation
+24  Flink -&gt; ClickHouse validation
+
+25  Raw Iceberg persistence
+26  Spark Silver transformations
+27  Spark Gold KPI transformations
+28  Airflow daily DAG
+29  Analytical publication
+
+30  Superset serving preparation
+
+31  Data quality
+32  Idempotency
+33  Replay
+34  Recovery
+35  Unit/integration tests
+36  End-to-end tests
+
+37  Observability improvements
+38  Final Makefile developer experience
+39  Documentation cleanup
+40  Final end-to-end business demo
+</code></pre>
+<p>Never execute multiple items automatically because they appear adjacent in this list.</p>
+<p>---</p>
+<h2 id="37-codex-kickoff-prompt">37. Codex Kickoff Prompt</h2>
+<p>Use the following prompt in Codex after <code>requirement.md</code> and <code>plan.md</code> are present in the repository:</p>
+<pre><code>
+Read requirement.md and plan.md completely.
+
+requirement.md is the mandatory source of truth for business,
+architecture, infrastructure, engineering, security, and approval rules.
+
+plan.md defines the implementation sequence.
+
+The following architecture choices are FINAL and must not be reopened
+unless I explicitly request a change:
+
+- Streaming serialization/event contracts: JSON
+- Schema evolution: versioned JSON contracts
+- Data Lake data-file format: Parquet
+- Data Lake table format: Apache Iceberg
+- Iceberg catalog: Nessie
+- Airflow executor: LocalExecutor
+- BI platform: Superset
+- PostgreSQL: Airflow metadata and approved relational/reference workloads
+- ClickHouse: low-latency operational and analytical serving
+- Spark: distributed batch compute
+- Flink: real-time stream processing
+- Kafka: streaming event backbone
+- Airflow: orchestration/control plane only
+
+Follow the strict one-action-at-a-time approval workflow.
+
+Before every meaningful action:
+
+1. Explain the current state.
+2. Recommend exactly one next step.
+3. Explain why.
+4. List files/services affected.
+5. State risk: Low / Medium / High.
+6. Show the exact command when a command is required.
+7. State impact:
+   Read-only / Non-destructive / Changes files / Starts services / Destructive.
+8. Explain the expected result.
+9. Ask for my explicit approval.
+10. Stop.
+
+Approval applies only to the immediately preceding action.
+
+Never automatically execute the next phase.
+Never silently modify unrelated files.
+Never automatically retry failed operations.
+Never perform destructive operations without immediate explicit confirmation.
+
+Start ONLY by proposing a read-only repository inspection.
+Show the exact commands you want to use.
+Do not execute them until I approve.
+</code></pre>
+<p>---</p>
+<h2 id="38-final-rule">38. Final Rule</h2>
+<p>Think proactively about:</p>
+<ul>
+<li>Architecture.</li>
+<li>Scalability.</li>
+<li>Reliability.</li>
+<li>Performance.</li>
+<li>Replayability.</li>
+<li>Idempotency.</li>
+<li>Schema evolution.</li>
+<li>Security.</li>
+<li>Observability.</li>
+<li>Local resource usage.</li>
+<li>Developer experience.</li>
+<li>Production readiness.</li>
+</ul>
+<p>But never perform the next meaningful implementation action without explicit approval.</p>
+      </article>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Batch &amp; Lakehouse Architecture | DeliveryFlow Docs</title>
+  <meta name="description" content="Technical guide for Airflow, Spark, Apache Iceberg, Nessie, and MinIO in DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Lakehouse</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html" class="active">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>Batch &amp; Lakehouse Architecture</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          DeliveryFlow implements an open-table Lakehouse architecture using Apache Iceberg, Project Nessie, MinIO, Apache Spark, and Apache Airflow to compute, store, and publish daily logistics key performance indicators (KPIs).
+        </p>
+
+        <h2 id="lakehouse-overview">Lakehouse Architecture Overview</h2>
+        <p>
+          While the streaming pipeline serves immediate operational status, the Lakehouse path guarantees long-term analytical persistence, reproducible historical snapshots, and aggregated KPI reporting.
+        </p>
+
+        <div class="diagram-container">
+          <div class="flow-grid">
+            <div class="flow-step">
+              <div class="flow-step__title">ClickHouse / Postgres</div>
+              <div class="flow-step__tech">Event &amp; Source Tables</div>
+              <div class="flow-step__desc">Source operational facts</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Apache Spark</div>
+              <div class="flow-step__tech">Batch Compute</div>
+              <div class="flow-step__desc">Aggregates KPIs &amp; builds Bronze/Gold datasets</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Iceberg + Nessie + MinIO</div>
+              <div class="flow-step__tech">Lakehouse Storage</div>
+              <div class="flow-step__desc">ACID transactions, Parquet data, versioned catalog</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">ClickHouse &amp; Superset</div>
+              <div class="flow-step__tech">Serving &amp; Reporting</div>
+              <div class="flow-step__desc">Publishes daily_delivery_kpi for BI charts</div>
+            </div>
+          </div>
+          <div class="diagram-caption">Figure 1: Analytical Lakehouse batch computation and publication flow.</div>
+        </div>
+
+        <h2 id="component-roles">Distinction of Lakehouse Roles</h2>
+        <p>
+          In a modern Lakehouse, storage, table format, catalog, and compute are independent modular layers. DeliveryFlow keeps these responsibilities strictly separated:
+        </p>
+
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">MinIO</h3>
+              <span class="badge badge--implemented">Object Storage</span>
+            </div>
+            <div class="service-card__role">Physical Storage Layer</div>
+            <div class="service-card__body">
+              <p>Provides local S3-compatible object storage. Holds the actual physical Parquet data files, Iceberg metadata JSON files, and manifest lists in bucket <code>delivery-lakehouse</code>.</p>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Iceberg</h3>
+              <span class="badge badge--implemented">Table Format</span>
+            </div>
+            <div class="service-card__role">Open Table Format</div>
+            <div class="service-card__body">
+              <p>Organizes physical Parquet files into ACID tables. Provides atomic snapshot isolation, schema evolution, and hidden partitioning without directory-structure coupling.</p>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Project Nessie</h3>
+              <span class="badge badge--implemented">Catalog</span>
+            </div>
+            <div class="service-card__role">Transactional Table Catalog</div>
+            <div class="service-card__body">
+              <p>Tracks which Iceberg metadata file corresponds to the current table state. Provides Git-like branch, tag, and commit semantics over tables (persisted in PostgreSQL).</p>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Spark</h3>
+              <span class="badge badge--implemented">Compute Engine</span>
+            </div>
+            <div class="service-card__role">Distributed Batch Engine</div>
+            <div class="service-card__body">
+              <p>Executes large-scale transformations, reads source facts via JDBC, commits Iceberg tables using the Nessie catalog, and publishes results back to ClickHouse.</p>
+            </div>
+          </div>
+        </div>
+
+        <h2 id="batch-workflow">The Batch Execution Flow</h2>
+
+        <h3>1. Orchestration via Apache Airflow</h3>
+        <p>
+          <strong>DAG File:</strong> <code>dags/delivery_daily_kpi.py</code>
+        </p>
+        <p>
+          Airflow functions purely as a scheduler and control plane, not as an execution runtime. The DAG enforces a strict sequence:
+        </p>
+        <ol>
+          <li><code>check_source_readiness</code>: Executes a lightweight Python check against ClickHouse to verify that <code>delivery.delivery_events</code> contains rows. If the streaming path has not run yet, the DAG fails early to prevent publishing empty KPI metrics.</li>
+          <li><code>run_spark_daily_batch</code>: Executes <code>spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py</code> inside the Spark cluster.</li>
+        </ol>
+
+        <h3>2. Spark Batch Application Logic</h3>
+        <p>
+          <strong>Entrypoint:</strong> <code>src/etl/apps/daily_kpi_job.py</code>
+        </p>
+        <p>
+          When triggered, the Spark application performs the following steps:
+        </p>
+        <ul>
+          <li><strong>Extract:</strong> Reads delivery event facts from ClickHouse <code>delivery.delivery_events</code> using partitioned JDBC queries.</li>
+          <li><strong>Transform:</strong> Calculates daily operational aggregations:
+            <ul>
+              <li>Total deliveries, completed deliveries, delayed deliveries, and on-time deliveries</li>
+              <li>Delay rate (<code>delayed_deliveries / completed_deliveries</code>) and on-time rate</li>
+              <li>Average delay in minutes and average vehicle fleet utilization</li>
+              <li>Total parcel package count, total order value, and average distance in km</li>
+            </ul>
+          </li>
+          <li><strong>Lakehouse Commit (Bronze &amp; Gold):</strong>
+            <ul>
+              <li>Writes raw event facts to <code>nessie.bronze.raw_delivery_events</code></li>
+              <li>Writes curated daily KPI rows to <code>nessie.gold.daily_delivery_kpi</code></li>
+            </ul>
+          </li>
+          <li><strong>Serving Layer Publication:</strong> Inserts the aggregated KPI rows into ClickHouse table <code>delivery.daily_delivery_kpi</code> using JDBC.</li>
+        </ul>
+
+        <h2 id="lakehouse-tables">Iceberg Lakehouse Table Catalog</h2>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Namespace / Table</th>
+                <th>Layer</th>
+                <th>Partition Strategy</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>nessie.bronze.raw_delivery_events</code></td>
+                <td>Bronze (Raw)</td>
+                <td>Partitioned by <code>event_date</code></td>
+                <td>Immutable, queryable historical archive of all raw delivery stream events.</td>
+              </tr>
+              <tr>
+                <td><code>nessie.gold.daily_delivery_kpi</code></td>
+                <td>Gold (Curated)</td>
+                <td>Partitioned by <code>business_date</code></td>
+                <td>Enriched business metrics aggregated by date, region, and warehouse.</td>
+              </tr>
+              <tr>
+                <td><code>delivery.daily_delivery_kpi</code></td>
+                <td>Serving (ClickHouse)</td>
+                <td>Monthly (<code>toYYYYMM</code>)</td>
+                <td>Columnar serving table queried by Apache Superset dashboard charts.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="lakehouse-commands">Batch &amp; Lakehouse Commands</h2>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span>PowerShell &mdash; Batch &amp; Lakehouse Operations</span>
+            <button class="terminal-copy-btn" type="button" data-copy="make spark-iceberg-test&#10;make spark-daily-kpi&#10;make airflow-dag-list">Copy All</button>
+          </div>
+          <pre class="terminal-body"><code># Run the Lakehouse infrastructure integration smoke test (Spark -> Nessie -> Iceberg -> MinIO)
+make spark-iceberg-test
+
+# Trigger the daily Spark KPI batch job directly
+make spark-daily-kpi
+
+# Inspect available Airflow DAGs
+make airflow-dag-list</code></pre>
+        </div>
+
+        <div class="callout callout--tip">
+          <div class="callout__title">Inspect Storage</div>
+          <p>
+            You can visually inspect physical Parquet files and Iceberg snapshot metadata in the <strong>MinIO Console</strong> at <a href="http://localhost:9001" target="_blank">http://localhost:9001</a> (Credentials: <code>localminio</code> / <code>localminio123</code>).
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <aside class="toc-sidebar">
+      <div class="toc-title">On this page</div>
+      <ul class="toc-nav">
+        <li><a href="#lakehouse-overview">Lakehouse Overview</a></li>
+        <li><a href="#component-roles">Lakehouse Technology Roles</a></li>
+        <li><a href="#batch-workflow">Batch Execution Flow</a></li>
+        <li><a href="#lakehouse-tables">Iceberg Table Catalog</a></li>
+        <li><a href="#lakehouse-commands">Operational Commands</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>

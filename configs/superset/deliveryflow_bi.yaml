@@ -1,3 +1,6 @@
+# DeliveryFlow Superset BI-as-Code Configuration
+# Declarative definition of ClickHouse database connection, datasets, charts,
+# and dashboard layout for automated provisioning via import_superset_assets.py.
 version: 1
 
 database:

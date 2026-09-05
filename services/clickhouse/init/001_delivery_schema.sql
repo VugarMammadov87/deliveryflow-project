@@ -1,5 +1,7 @@
+-- Operational and BI serving schema for the delivery application.
 CREATE DATABASE IF NOT EXISTS delivery;
 
+-- Immutable stream event history written by Flink; partitioned monthly with a 30-day TTL.
 CREATE TABLE IF NOT EXISTS delivery.delivery_events
 (
     schema_version UInt16,
@@ -40,6 +42,7 @@ PARTITION BY toYYYYMM(event_timestamp)
 ORDER BY (delivery_id, event_timestamp, event_id)
 TTL toDateTime(event_timestamp) + INTERVAL 30 DAY;
 
+-- Latest operational state per delivery; deduplicated by version using ReplacingMergeTree.
 CREATE TABLE IF NOT EXISTS delivery.delivery_current_state
 (
     delivery_id String,
@@ -77,6 +80,7 @@ CREATE TABLE IF NOT EXISTS delivery.delivery_current_state
 ENGINE = ReplacingMergeTree(version)
 ORDER BY delivery_id;
 
+-- Latest operational state and location per active delivery vehicle.
 CREATE TABLE IF NOT EXISTS delivery.vehicle_current_state
 (
     vehicle_id String,
@@ -96,6 +100,7 @@ CREATE TABLE IF NOT EXISTS delivery.vehicle_current_state
 ENGINE = ReplacingMergeTree(version)
 ORDER BY vehicle_id;
 
+-- Daily logistics KPIs published by the Spark batch job; queried by Superset reporting.
 CREATE TABLE IF NOT EXISTS delivery.daily_delivery_kpi
 (
     business_date Date,
@@ -118,6 +123,7 @@ ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(business_date)
 ORDER BY (business_date, region, warehouse_id);
 
+-- BI View 1: Delivery status distribution and average delay across all events.
 CREATE VIEW IF NOT EXISTS delivery.v_delivery_status_overview AS
 SELECT
     status,
@@ -127,6 +133,7 @@ SELECT
 FROM delivery.delivery_events
 GROUP BY status;
 
+-- BI View 2: Regional performance and delay rates segmented by service level.
 CREATE VIEW IF NOT EXISTS delivery.v_delay_by_region AS
 SELECT
     region,
@@ -137,6 +144,7 @@ SELECT
 FROM delivery.delivery_events
 GROUP BY region, service_level;
 
+-- BI View 3: Vehicle fleet utilization and active route status.
 CREATE VIEW IF NOT EXISTS delivery.v_vehicle_utilization AS
 SELECT
     vehicle_id,
@@ -147,6 +155,7 @@ SELECT
 FROM delivery.vehicle_current_state
 GROUP BY vehicle_id;
 
+-- BI View 4: Warehouse and regional operational KPI snapshot.
 CREATE VIEW IF NOT EXISTS delivery.v_warehouse_daily_kpi AS
 SELECT
     business_date,
@@ -163,6 +172,7 @@ SELECT
     avg_distance_km
 FROM delivery.daily_delivery_kpi;
 
+-- BI View 5: Hourly delivery event and unique delivery volume trends.
 CREATE VIEW IF NOT EXISTS delivery.v_delivery_event_volume AS
 SELECT
     toStartOfHour(event_timestamp) AS event_hour,
@@ -173,8 +183,10 @@ SELECT
 FROM delivery.delivery_events
 GROUP BY event_hour, event_type, region;
 
+-- Operational serving schema for the independent fleet vehicle telemetry application.
 CREATE DATABASE IF NOT EXISTS fleet;
 
+-- Raw vehicle telemetry events received from Kafka; partitioned monthly with a 30-day TTL.
 CREATE TABLE IF NOT EXISTS fleet.vehicle_telemetry_events
 (
     schema_version UInt16,
@@ -199,6 +211,7 @@ PARTITION BY toYYYYMM(event_timestamp)
 ORDER BY (vehicle_id, event_timestamp, event_id)
 TTL toDateTime(event_timestamp) + INTERVAL 30 DAY;
 
+-- Latest reported telemetric state and location per fleet vehicle.
 CREATE TABLE IF NOT EXISTS fleet.vehicle_current_state
 (
     vehicle_id String,
@@ -218,6 +231,7 @@ CREATE TABLE IF NOT EXISTS fleet.vehicle_current_state
 ENGINE = ReplacingMergeTree(version)
 ORDER BY vehicle_id;
 
+-- Critical and warning health events (overspeed, low fuel, high engine temperature).
 CREATE TABLE IF NOT EXISTS fleet.vehicle_health_alerts
 (
     event_id String,
@@ -232,6 +246,7 @@ ENGINE = MergeTree
 PARTITION BY toYYYYMM(event_timestamp)
 ORDER BY (alert_type, vehicle_id, event_timestamp, event_id);
 
+-- Aggregated 5-minute tumbling window metrics computed by Flink SQL.
 CREATE TABLE IF NOT EXISTS fleet.vehicle_metrics_5m
 (
     window_start DateTime64(3, 'UTC'),

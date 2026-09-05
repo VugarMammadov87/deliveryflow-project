@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Create relational logistics operational tables (warehouses, vehicles, drivers, orders, shipments, delivery plans).
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$SOURCE_DB_NAME" <<SQL

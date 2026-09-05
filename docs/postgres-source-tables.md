@@ -1,13 +1,13 @@
 # PostgreSQL Source Tables
 
-Bu sənəd DeliveryFlow layihəsində PostgreSQL source qatını izah edir. PostgreSQL burada iki fərqli məqsəd üçün istifadə olunur:
+This document explains the PostgreSQL source layer in DeliveryFlow. PostgreSQL is used here for two different purposes:
 
 - Airflow metadata database.
-- Logistics source və Nessie metadata database.
+- The logistics source and Nessie metadata databases.
 
-Əsas source data `postgres-source` servisindədir.
+The primary source data is in the `postgres-source` service.
 
-## PostgreSQL Servis Xəritəsi
+## PostgreSQL Service Map
 
 ```mermaid
 flowchart TB
@@ -26,9 +26,9 @@ flowchart TB
     spark["Spark batch jobs"] -. future source reads .-> logistics
 ```
 
-## `postgres-source` Nə Üçündür?
+## What Is `postgres-source` For?
 
-`postgres-source` lokal source system kimi davranır. Real şirkətdə bu data ERP, OMS, WMS və ya TMS sistemlərindən gələ bilərdi. Bu layihədə həmin source sistemlər sadələşdirilib və PostgreSQL cədvəlləri ilə göstərilib.
+`postgres-source` acts as the local source system. In a real company, this data could come from ERP, OMS, WMS, or TMS systems. In this project, those source systems are simplified and represented with PostgreSQL tables.
 
 Database:
 
@@ -42,13 +42,13 @@ Init script:
 services/postgres/source-init/003_create_source_tables.sh
 ```
 
-Generator batch mode bu cədvəlləri seed edir:
+The generator batch mode seeds these tables:
 
 ```powershell
 make seed-batch-source
 ```
 
-və ya default olaraq:
+or, by default:
 
 ```powershell
 make produce
@@ -123,68 +123,68 @@ erDiagram
     }
 ```
 
-## Cədvəl 1: `warehouses`
+## Table 1: `warehouses`
 
-Warehouse master data saxlayır.
+Stores warehouse master data.
 
-Əsas field-lər:
+Main fields:
 
-- `warehouse_id`: warehouse üçün primary key.
-- `warehouse_name`: insan oxuya bilən ad.
+- `warehouse_id`: primary key for the warehouse.
+- `warehouse_name`: human-readable name.
 - `region`: regional grouping.
-- `city`: şəhər.
-- `latitude`, `longitude`: xəritə və location analytics üçün koordinatlar.
-- `created_at`: record-un yaradılma vaxtı.
+- `city`: city.
+- `latitude`, `longitude`: coordinates for maps and location analytics.
+- `created_at`: record creation time.
 
-Bu cədvəl `shipments` ilə əlaqəlidir. Hər shipment bir warehouse-dan çıxır.
+This table is related to `shipments`. Each shipment leaves one warehouse.
 
-## Cədvəl 2: `vehicles`
+## Table 2: `vehicles`
 
-Vehicle master data saxlayır.
+Stores vehicle master data.
 
-Əsas field-lər:
+Main fields:
 
-- `vehicle_id`: vehicle üçün primary key.
-- `plate_number`: unique nömrə.
-- `vehicle_type`: məsələn, van və ya truck.
-- `capacity_total`: daşıma capacity-si.
-- `active`: vehicle istifadədədir ya yox.
-- `created_at`: record-un yaradılma vaxtı.
+- `vehicle_id`: primary key for the vehicle.
+- `plate_number`: unique number.
+- `vehicle_type`: for example, van or truck.
+- `capacity_total`: transport capacity.
+- `active`: whether the vehicle is in use.
+- `created_at`: record creation time.
 
-Bu cədvəl `delivery_plans` ilə əlaqəlidir. Hər delivery plan bir vehicle-a assign olunur.
+This table is related to `delivery_plans`. Each delivery plan is assigned to one vehicle.
 
-## Cədvəl 3: `drivers`
+## Table 3: `drivers`
 
-Driver master data saxlayır.
+Stores driver master data.
 
-Əsas field-lər:
+Main fields:
 
-- `driver_id`: driver üçün primary key.
-- `full_name`: driver adı.
-- `phone_number`: əlaqə nömrəsi.
-- `active`: driver aktivdir ya yox.
-- `created_at`: record-un yaradılma vaxtı.
+- `driver_id`: primary key for the driver.
+- `full_name`: driver's name.
+- `phone_number`: contact number.
+- `active`: whether the driver is active.
+- `created_at`: record creation time.
 
-Bu cədvəl `delivery_plans` ilə əlaqəlidir. Hər delivery plan bir driver-a assign olunur.
+This table is related to `delivery_plans`. Each delivery plan is assigned to one driver.
 
-## Cədvəl 4: `customer_orders`
+## Table 4: `customer_orders`
 
-Order-level source data saxlayır. Bu cədvəl batch analytics üçün ən zəngin source cədvəldir.
+Stores order-level source data. This is the richest source table for batch analytics.
 
-Əsas field-lər:
+Main fields:
 
 - `order_id`: order primary key.
-- `customer_id`: customer identifikatoru.
-- `customer_region`: customer regionu.
-- `destination_city`: delivery destination şəhəri.
-- `destination_latitude`, `destination_longitude`: delivery destination koordinatları.
-- `service_level`: `standard`, `express`, `same_day` kimi service səviyyəsi.
-- `priority`: `normal`, `high`, `critical` kimi prioritet.
-- `package_count`: order içində package sayı.
+- `customer_id`: customer identifier.
+- `customer_region`: customer region.
+- `destination_city`: delivery destination city.
+- `destination_latitude`, `destination_longitude`: delivery destination coordinates.
+- `service_level`: service level such as `standard`, `express`, or `same_day`.
+- `priority`: priority such as `normal`, `high`, or `critical`.
+- `package_count`: number of packages in the order.
 - `order_value`: order monetary value.
-- `payment_method`: ödəniş tipi.
-- `order_created_at`: order yaradılma vaxtı.
-- `promised_delivery_at`: promised delivery vaxtı.
+- `payment_method`: payment type.
+- `order_created_at`: order creation time.
+- `promised_delivery_at`: promised delivery time.
 
 Constraint:
 
@@ -192,43 +192,43 @@ Constraint:
 - `package_count > 0`
 - `order_value >= 0`
 
-Bu cədvəl `shipments` üçün parent table-dır.
+This table is the parent table for `shipments`.
 
-## Cədvəl 5: `shipments`
+## Table 5: `shipments`
 
-Order ilə warehouse arasında shipment əlaqəsi yaradır.
+Creates the shipment relationship between an order and a warehouse.
 
-Əsas field-lər:
+Main fields:
 
 - `shipment_id`: shipment primary key.
 - `order_id`: `customer_orders(order_id)` foreign key.
 - `warehouse_id`: `warehouses(warehouse_id)` foreign key.
 - `shipment_status`: shipment status.
-- `created_at`: record yaradılma vaxtı.
+- `created_at`: record creation time.
 
-Bu cədvəl order lifecycle üçün bridge rolundadır.
+This table acts as the bridge for the order lifecycle.
 
-## Cədvəl 6: `delivery_plans`
+## Table 6: `delivery_plans`
 
-Shipment-in necə daşınacağını göstərən plan cədvəlidir.
+This planning table describes how a shipment will be transported.
 
-Əsas field-lər:
+Main fields:
 
 - `delivery_id`: delivery primary key.
 - `shipment_id`: `shipments(shipment_id)` foreign key.
 - `vehicle_id`: `vehicles(vehicle_id)` foreign key.
 - `driver_id`: `drivers(driver_id)` foreign key.
-- `route_id`: route identifikatoru.
-- `planned_departure_at`: planlaşdırılmış çıxış vaxtı.
-- `planned_arrival_at`: planlaşdırılmış çatma vaxtı.
-- `planned_distance_km`: planlaşdırılmış məsafə.
+- `route_id`: route identifier.
+- `planned_departure_at`: planned departure time.
+- `planned_arrival_at`: planned arrival time.
+- `planned_distance_km`: planned distance.
 
 Constraint:
 
 - `planned_arrival_at > planned_departure_at`
 - `planned_distance_km >= 0`
 
-## Batch Source Seed Axını
+## Batch Source Seed Flow
 
 ```mermaid
 sequenceDiagram
@@ -247,29 +247,29 @@ sequenceDiagram
     G->>PG: delivery_plans insert
 ```
 
-Generator `ON CONFLICT DO NOTHING` istifadə edir. Bu o deməkdir ki, eyni ID ilə təkrar seed edəndə mövcud row-lar yenidən duplicate olmayacaq.
+The generator uses `ON CONFLICT DO NOTHING`. This means reseeding with the same IDs does not duplicate existing rows.
 
 ## Inspect Commands
 
-Database-ləri görmək:
+To list databases:
 
 ```powershell
 docker compose exec postgres-source psql -U postgres -d postgres -c "\l"
 ```
 
-`logistics_source` cədvəllərini görmək:
+To list `logistics_source` tables:
 
 ```powershell
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "\dt"
 ```
 
-Bir cədvəlin strukturuna baxmaq:
+To inspect a table structure:
 
 ```powershell
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "\d customer_orders"
 ```
 
-Row saylarını yoxlamaq:
+To check row counts:
 
 ```powershell
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "SELECT count(*) FROM customer_orders;"
@@ -288,7 +288,7 @@ Join sample:
 docker compose exec postgres-source psql -U postgres -d logistics_source -c "SELECT o.order_id, s.shipment_id, d.delivery_id, d.vehicle_id, d.driver_id FROM customer_orders o JOIN shipments s ON s.order_id = o.order_id JOIN delivery_plans d ON d.shipment_id = s.shipment_id LIMIT 10;"
 ```
 
-## PostgreSQL və Digər Servislərin Əlaqəsi
+## PostgreSQL and Other Services
 
 ```mermaid
 flowchart LR
@@ -306,10 +306,10 @@ flowchart LR
     sourceTables -. future batch source .-> spark
 ```
 
-## Vacib Qeydlər
+## Important Notes
 
-- `postgres-source` içində həm source data, həm Nessie metadata var, amma bunlar ayrı database-lərdədir.
-- `postgres-airflow` yalnız Airflow metadata üçündür.
-- Source cədvəllər operational serving üçün deyil; serving ClickHouse-dadır.
-- Superset PostgreSQL source cədvəllərini oxumamalıdır; dashboard üçün ClickHouse view-ları istifadə olunmalıdır.
-- Köhnə volume qalarsa, init script-dəki yeni sütunlar mövcud cədvəllərə avtomatik əlavə olunmaya bilər. Belə halda lokal data-nı sıfırlamaq üçün `make purge` lazımdır.
+- `postgres-source` contains both source data and Nessie metadata, but they are in separate databases.
+- `postgres-airflow` is used only for Airflow metadata.
+- Source tables are not for operational serving; ClickHouse provides serving.
+- Superset should not read PostgreSQL source tables; dashboards should use ClickHouse views.
+- If an old volume remains, new columns in the init script may not be added automatically to existing tables. In that case, use `make purge` to reset local data.

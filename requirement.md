@@ -1,4 +1,4 @@
-﻿# Real-Time Delivery Monitoring and Daily Transportation Optimization
+# Real-Time Delivery Monitoring and Daily Transportation Optimization
 
 > **Document purpose:** This file is the single source of truth for the project's business requirements, architecture requirements, infrastructure requirements, development rules, and implementation constraints. The platform is intended for local development first, while applying production-grade data engineering principles where practical.
 
@@ -1071,6 +1071,7 @@ The repository should eventually contain professional local infrastructure confi
 Potential structure:
 
 ```
+```text
 project-root/
 â”œâ”€â”€ requirement.md
 â”œâ”€â”€ .env
@@ -1103,6 +1104,36 @@ project-root/
 â”œâ”€â”€ docs/
 â””â”€â”€ data/
 
+|-- requirement.md
+|-- .env
+|-- .env.example
+|-- .gitignore
+|-- Makefile
+|-- docker-compose.yml
+|-- docker-compose.local.yml
+|
+|-- services/
+|   |-- kafka/
+|   |-- flink/
+|   |-- spark/
+|   |-- airflow/
+|   |-- clickhouse/
+|   |-- object-storage/
+|   |-- nessie/
+|   \-- postgres/
+|
+|-- dags/
+|
+|-- src/
+|   |-- producers/
+|   |-- streaming/
+|   \-- batch/
+|
+|-- configs/
+|-- scripts/
+|-- tests/
+|-- docs/
+\-- data/
 ```
 
 This is a possible target structure only.

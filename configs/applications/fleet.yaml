@@ -1,3 +1,6 @@
+# Fleet Telemetry Application Metadata Specification
+# Defines ownership, Flink SQL streaming pipeline, alerting thresholds, and serving targets
+# for continuous vehicle telemetry monitoring.
 application: fleet
 domain: fleet-operations
 owner:

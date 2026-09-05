@@ -233,7 +233,7 @@ foreach ($relativePath in $markdownFiles) {
 
     $cssPath = if ([string]::IsNullOrWhiteSpace($directory)) { "docs/$assetCss" } else { $assetCss }
     $jsPath = if ([string]::IsNullOrWhiteSpace($directory)) { "docs/$assetJs" } else { $assetJs }
-    $subtitle = "Converted from $relativePath. The original Markdown file has been retired per the current documentation direction."
+    $subtitle = "Converted from $relativePath. The Markdown source remains available for editing and review."
     $page = Page-Chrome -Title $title -Subtitle $subtitle -Body $converted.Body -CssPath $cssPath -JsPath $jsPath -Headings $converted.Headings
     Set-Content -Path $htmlPath -Value $page -Encoding utf8
 
@@ -336,14 +336,7 @@ $index = @"
 "@
 Set-Content -Path $indexPath -Value $index -Encoding utf8
 
-foreach ($relativePath in $markdownFiles) {
-    $mdPath = Assert-InWorkspace (Join-Path $root $relativePath)
-    if (Test-Path $mdPath) {
-        Remove-Item -LiteralPath $mdPath
-    }
-}
-
-Write-Output "Converted $($convertedPages.Count) Markdown files to HTML and removed original Markdown files."
+Write-Output "Converted $($convertedPages.Count) Markdown files to HTML. Markdown sources were preserved."
 foreach ($page in $convertedPages) {
     Write-Output "$($page.Md) -> $($page.Html)"
 }

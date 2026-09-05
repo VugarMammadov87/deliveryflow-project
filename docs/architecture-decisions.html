@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Architecture Decisions | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="assets/css/documentation.css">
+    <script src="assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+        <h1>Architecture Decisions</h1>
+        <p>Converted from docs/architecture-decisions.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#architecture-decisions">Architecture Decisions</a>
+<a href="#adr-000-multi-application-control-plane">ADR-000: Multi-Application Control Plane</a>
+<a href="#high-level-architecture">High-Level Architecture</a>
+<a href="#pinned-compatibility-set">Pinned Compatibility Set</a>
+<a href="#adr-001-kafka-kraft-broker">ADR-001: Kafka KRaft Broker</a>
+<a href="#adr-002-flink-stream-processing">ADR-002: Flink Stream Processing</a>
+<a href="#adr-003-clickhouse-serving-layer">ADR-003: ClickHouse Serving Layer</a>
+<a href="#adr-004-spark-batch-processing">ADR-004: Spark Batch Processing</a>
+<a href="#adr-005-iceberg-nessie-minio-lakehouse">ADR-005: Iceberg + Nessie + MinIO Lakehouse</a>
+<a href="#adr-006-postgresql-database-separation">ADR-006: PostgreSQL Database Separation</a>
+<a href="#adr-007-airflow-batch-orchestration">ADR-007: Airflow Batch Orchestration</a>
+<a href="#adr-008-superset-bi-layer">ADR-008: Superset BI Layer</a>
+<a href="#adr-009-one-generator-two-data-types">ADR-009: One Generator, Two Data Types</a>
+<a href="#adr-010-make-clean-and-make-purge-separation">ADR-010: `make clean` and `make purge` Separation</a>
+<a href="#adr-011-producer-and-platform-tooling-image-separation">ADR-011: Producer and Platform Tooling Image Separation</a>
+<a href="#adr-012-modular-producer-and-stable-continuous-rate">ADR-012: Modular Producer and Stable Continuous Rate</a>
+<a href="#runtime-service-map">Runtime Service Map</a>
+<a href="#operational-rules">Operational Rules</a></aside>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture Decisions (ADRs) | DeliveryFlow Docs</title>
+  <meta name="description" content="Formal Architecture Decision Records (ADR-000 through ADR-012) and compatibility catalog for DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Architecture</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html" class="active">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h2 id="architecture-decisions">Architecture Decisions</h2>
+<h3 id="adr-000-multi-application-control-plane">ADR-000: Multi-Application Control Plane</h3>
+<p>DeliveryFlow is no longer documented as a single-application demo. The repository now has a small control-plane structure that separates application metadata, dataset metadata, and event contracts:</p>
+<pre><code>
+configs/applications/
+configs/datasets/
+src/contracts/&lt;domain&gt;/
+</code></pre>
+<p>Decision:</p>
+<ul>
+<li>Keep the local platform simple, but make application ownership explicit.</li>
+<li>Keep delivery as the default application.</li>
+<li>Add fleet telemetry as an independent second application.</li>
+<li>Select non-default app runtime with <code>APP=fleet</code>.</li>
+<li>Keep Kafka topics domain-oriented, not one topic per table by default.</li>
+<li>Keep ClickHouse serving schemas domain-oriented: <code>delivery.*</code> and <code>fleet.*</code>.</li>
+</ul>
+<p>The first implementation of this decision is <code>VehicleTelemetrySqlJob</code>, a Java Flink SQL/Table API job that reads <code>vehicle-telemetry-events</code> and writes to the <code>fleet</code> database. This is intentionally separate from <code>DeliveryStreamingJob</code>, which remains the Java DataStream implementation for delivery events.</p>
+<p>This decision prepares the project for 300-500 table growth without requiring one Python script, one Spark job, one Flink job, one Airflow DAG, and one Superset file per table.</p>
+<p>This document explains the main architecture decisions made for DeliveryFlow. The goal is to build a platform that is simple, functional, and aligned with data engineering principles for the local lab.</p>
+<h3 id="high-level-architecture">High-Level Architecture</h3>
+<pre><code>
+flowchart TB
+    subgraph ingestion[&quot;Ingestion&quot;]
+        producer[&quot;Synthetic Producer&quot;]
+        kafka[&quot;Kafka&quot;]
+        postgres[&quot;PostgreSQL Source&quot;]
+    end
+        <h1>Architecture Decision Records (ADRs)</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          This catalog documents the foundational design choices, operational rationales, and structural trade-offs governing the DeliveryFlow data platform.
+        </p>
+
+    subgraph processing[&quot;Processing&quot;]
+        flink[&quot;Flink Streaming&quot;]
+        spark[&quot;Spark Batch&quot;]
+        airflow[&quot;Airflow Orchestration&quot;]
+    end
+        <h2 id="pinned-versions">Pinned Compatibility Stack</h2>
+        <p>
+          To eliminate dependency drift and ensure deterministic local execution, DeliveryFlow locks all infrastructure and client versions into an officially verified compatibility set:
+        </p>
+
+    subgraph storage[&quot;Storage&quot;]
+        clickhouse[&quot;ClickHouse Serving&quot;]
+        iceberg[&quot;Iceberg Tables&quot;]
+        nessie[&quot;Nessie Catalog&quot;]
+        minio[&quot;MinIO Object Storage&quot;]
+    end
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Component</th>
+                <th>Image / Maven Coordinate</th>
+                <th>Role in Architecture</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Apache Kafka</strong></td>
+                <td><code>apache/kafka:3.9.2</code></td>
+                <td>Single-broker KRaft event backbone (No ZooKeeper)</td>
+              </tr>
+              <tr>
+                <td><strong>Apache Flink</strong></td>
+                <td><code>flink:1.20.3-scala_2.12-java11</code></td>
+                <td>Stream processing cluster (JobManager + TaskManager)</td>
+              </tr>
+              <tr>
+                <td><strong>Flink Kafka Connector</strong></td>
+                <td><code>org.apache.flink:flink-connector-kafka:3.4.0-1.20</code></td>
+                <td>Kafka source integration for DataStream and Table API</td>
+              </tr>
+              <tr>
+                <td><strong>Apache Spark</strong></td>
+                <td><code>deliveryflow-spark:3.5.6</code></td>
+                <td>Batch compute engine configured with Iceberg &amp; Nessie</td>
+              </tr>
+              <tr>
+                <td><strong>Apache Iceberg</strong></td>
+                <td><code>org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0</code></td>
+                <td>Open table format with ACID transactions and time travel</td>
+              </tr>
+              <tr>
+                <td><strong>Project Nessie</strong></td>
+                <td><code>ghcr.io/projectnessie/nessie:0.107.5</code></td>
+                <td>Git-like transactional catalog for Iceberg tables</td>
+              </tr>
+              <tr>
+                <td><strong>MinIO Object Storage</strong></td>
+                <td><code>minio/minio:RELEASE.2025-04-22T22-12-26Z</code></td>
+                <td>S3-compatible Lakehouse storage for Parquet files</td>
+              </tr>
+              <tr>
+                <td><strong>ClickHouse</strong></td>
+                <td><code>clickhouse/clickhouse-server:25.8</code></td>
+                <td>Low-latency columnar analytical serving layer</td>
+              </tr>
+              <tr>
+                <td><strong>Apache Airflow</strong></td>
+                <td><code>apache/airflow:2.10.5-python3.10</code></td>
+                <td>Batch orchestrator with LocalExecutor</td>
+              </tr>
+              <tr>
+                <td><strong>Apache Superset</strong></td>
+                <td><code>apache/superset:4.1.2</code></td>
+                <td>Business Intelligence dashboards and ad-hoc SQL lab</td>
+              </tr>
+              <tr>
+                <td><strong>PostgreSQL</strong></td>
+                <td><code>postgres:16.4-bookworm</code></td>
+                <td>Transactional source DB and Airflow metastore</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+    subgraph bi[&quot;BI&quot;]
+        superset[&quot;Superset&quot;]
+    end
+        <h2 id="adr-catalog">Architectural Decisions</h2>
+
+    producer --&gt; kafka
+    producer --&gt; postgres
+    kafka --&gt; flink
+    flink --&gt; clickhouse
+    airflow --&gt; spark
+    clickhouse --&gt; spark
+    spark --&gt; iceberg
+    iceberg --&gt; nessie
+    iceberg --&gt; minio
+    spark --&gt; clickhouse
+    clickhouse --&gt; superset
+</code></pre>
+<h3 id="pinned-compatibility-set">Pinned Compatibility Set</h3>
+<p>These versions were selected for compatibility within the local platform:</p>
+<ul>
+<li>Kafka: <code>apache/kafka:3.9.2</code></li>
+<li>Flink: <code>flink:1.20.3-scala_2.12-java11</code></li>
+<li>Flink Kafka connector: <code>org.apache.flink:flink-connector-kafka:3.4.0-1.20</code></li>
+<li>Spark base: <code>apache/spark:3.5.6-java17</code></li>
+<li>Spark local image: <code>deliveryflow-spark:3.5.6</code></li>
+<li>Iceberg Spark runtime: <code>org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.11.0</code></li>
+<li>Iceberg AWS bundle: <code>org.apache.iceberg:iceberg-aws-bundle:1.11.0</code></li>
+<li>Nessie Spark extensions: <code>org.projectnessie.nessie-integrations:nessie-spark-extensions-3.5_2.12:0.105.3</code></li>
+<li>Nessie server: <code>ghcr.io/projectnessie/nessie:0.107.5</code></li>
+<li>Airflow: <code>apache/airflow:2.10.5-python3.10</code></li>
+<li>Superset: <code>apache/superset:4.1.2</code></li>
+<li>PostgreSQL: <code>postgres:16.4-bookworm</code></li>
+<li>ClickHouse: <code>clickhouse/clickhouse-server:25.8</code></li>
+<li>Object storage: <code>minio/minio:RELEASE.2025-04-22T22-12-26Z</code></li>
+</ul>
+<h3 id="adr-001-kafka-kraft-broker">ADR-001: Kafka KRaft Broker</h3>
+<p>Kafka runs as a single KRaft broker. ZooKeeper is not included in the local lab.</p>
+<p>Rationale:</p>
+<ul>
+<li>Fewer services.</li>
+<li>Simpler local bootstrap.</li>
+<li>A setup closer to the modern Kafka deployment model.</li>
+</ul>
+<p>Topic strategy:</p>
+<pre><code>
+delivery-events
+</code></pre>
+<p>This topic carries delivery lifecycle events. The event key is <code>delivery_id</code>.</p>
+<h3 id="adr-002-flink-stream-processing">ADR-002: Flink Stream Processing</h3>
+<p>Flink was selected for real-time event processing.</p>
+<p>Rationale:</p>
+<ul>
+<li>Natural integration with Kafka as a source.</li>
+<li>Event-time and watermark support.</li>
+<li>Keyed stream processing.</li>
+<li>Checkpointing support.</li>
+<li>A suitable model for a real-time ClickHouse sink.</li>
+</ul>
+<p>In this project, Flink:</p>
+<ul>
+<li>Consumes Kafka events.</li>
+<li>Parses JSON.</li>
+<li>Validates <code>schema_version = 1</code>.</li>
+<li>Builds delivery and vehicle state.</li>
+<li>Writes to ClickHouse.</li>
+</ul>
+<h3 id="adr-003-clickhouse-serving-layer">ADR-003: ClickHouse Serving Layer</h3>
+<p>ClickHouse is the operational and BI serving layer.</p>
+<p>ClickHouse tables:</p>
+<ul>
+<li><code>delivery.delivery_events</code>: immutable event history.</li>
+<li><code>delivery.delivery_current_state</code>: latest delivery state.</li>
+<li><code>delivery.vehicle_current_state</code>: latest vehicle state.</li>
+<li><code>delivery.daily_delivery_kpi</code>: batch KPI serving table.</li>
+</ul>
+<p>ClickHouse views:</p>
+<ul>
+<li><code>v_delivery_status_overview</code></li>
+<li><code>v_delay_by_region</code></li>
+<li><code>v_vehicle_utilization</code></li>
+<li><code>v_warehouse_daily_kpi</code></li>
+<li><code>v_delivery_event_volume</code></li>
+</ul>
+<pre><code>
+flowchart LR
+    flink[&quot;Flink&quot;] --&gt; events[&quot;delivery_events&quot;]
+    flink --&gt; deliveryState[&quot;delivery_current_state&quot;]
+    flink --&gt; vehicleState[&quot;vehicle_current_state&quot;]
+    spark[&quot;Spark&quot;] --&gt; dailyKpi[&quot;daily_delivery_kpi&quot;]
+        <!-- ADR-000 -->
+        <div class="troubleshooting-card" id="adr-000">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-000</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Multi-Application Control Plane Architecture</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> A single-application demo hardcodes topic names, schema paths, and database names. Scaling to multiple logistics domains would require duplicating scripts and pipelines.</p>
+            <p><strong>Decision:</strong> Introduce a metadata-driven control plane separating application metadata, dataset metadata, and event contracts:
+              <code>configs/applications/</code>, <code>configs/datasets/</code>, and <code>src/contracts/&lt;domain&gt;/</code>.
+              Default application is <code>delivery</code>; non-default applications are selected with <code>APP=&lt;name&gt;</code> (e.g. <code>APP=fleet</code>).
+            </p>
+            <p><strong>Consequences:</strong> The platform easily scales to 300&ndash;500 tables without duplicating orchestrators or writing dedicated jobs per table.</p>
+          </div>
+        </div>
+
+    events --&gt; views[&quot;BI-ready views&quot;]
+    deliveryState --&gt; views
+    vehicleState --&gt; views
+    dailyKpi --&gt; views
+    views --&gt; superset[&quot;Superset&quot;]
+</code></pre>
+<h3 id="adr-004-spark-batch-processing">ADR-004: Spark Batch Processing</h3>
+<p>Spark was selected for daily KPI and lakehouse writes.</p>
+<p>Rationale:</p>
+<ul>
+<li>A broad ecosystem for batch aggregation.</li>
+<li>Iceberg integration.</li>
+<li>The ability to read from ClickHouse over JDBC.</li>
+<li>The ability to be controlled from Airflow with <code>spark-submit</code>.</li>
+</ul>
+<p>Spark job:</p>
+<pre><code>
+src/etl/apps/daily_kpi_job.py
+</code></pre>
+<p>Spark output:</p>
+<ul>
+<li><code>nessie.bronze.raw_delivery_events</code></li>
+<li><code>nessie.gold.daily_delivery_kpi</code></li>
+<li><code>delivery.daily_delivery_kpi</code></li>
+</ul>
+<h3 id="adr-005-iceberg-nessie-minio-lakehouse">ADR-005: Iceberg + Nessie + MinIO Lakehouse</h3>
+<p>The lakehouse layer has three parts:</p>
+<ul>
+<li>Iceberg table format.</li>
+<li>Nessie catalog.</li>
+<li>MinIO S3-compatible object storage.</li>
+</ul>
+<pre><code>
+flowchart LR
+    spark[&quot;Spark&quot;] --&gt; iceberg[&quot;Iceberg table metadata&quot;]
+    iceberg --&gt; nessie[&quot;Nessie catalog refs&quot;]
+    iceberg --&gt; minio[&quot;MinIO warehouse files&quot;]
+    nessie --&gt; pg[&quot;PostgreSQL nessie_metadata&quot;]
+</code></pre>
+<p>Rationale:</p>
+<ul>
+<li>Iceberg provides the analytical table format.</li>
+<li>Nessie manages the catalog and versioned metadata.</li>
+<li>MinIO provides S3-compatible local object storage.</li>
+</ul>
+<h3 id="adr-006-postgresql-database-separation">ADR-006: PostgreSQL Database Separation</h3>
+<p>There are two PostgreSQL services:</p>
+<ul>
+<li><code>postgres-airflow</code></li>
+<li><code>postgres-source</code></li>
+</ul>
+<p><code>postgres-airflow</code> is used only for Airflow metadata.</p>
+<p><code>postgres-source</code> stores two databases:</p>
+<ul>
+<li><code>logistics_source</code></li>
+<li><code>nessie_metadata</code></li>
+</ul>
+<p>This separation makes lifecycle and ownership clearer.</p>
+<h3 id="adr-007-airflow-batch-orchestration">ADR-007: Airflow Batch Orchestration</h3>
+<p>Airflow provides batch orchestration. It is not part of the streaming path.</p>
+<p>Airflow responsibilities:</p>
+<ul>
+<li>Schedule DAGs.</li>
+<li>Check source readiness.</li>
+<li>Submit Spark jobs.</li>
+<li>Manage task status and retries.</li>
+</ul>
+<p>In this project, Airflow uses <code>LocalExecutor</code>.</p>
+<h3 id="adr-008-superset-bi-layer">ADR-008: Superset BI Layer</h3>
+<p>Superset is the BI and dashboard layer.</p>
+<p>Superset connects to ClickHouse and builds charts from prepared views.</p>
+<p>Rationale:</p>
+<ul>
+<li>Runs locally within Compose.</li>
+<li>Works with ClickHouse.</li>
+<li>Dashboards open in a browser.</li>
+<li>Keeps the platform fully local.</li>
+</ul>
+<p>Superset should not use raw Kafka, raw MinIO, or Iceberg metadata. Its approved data source is the ClickHouse serving layer.</p>
+<p>BI objects are not stored as manual UI configuration. <code>configs/superset/deliveryflow_bi.yaml</code> is the repository source of truth for Superset database, dataset, chart, and dashboard definitions.</p>
+<p>The <code>make import-superset-assets</code> workflow applies these decisions:</p>
+<ul>
+<li>The <code>superset-importer</code> image is rebuilt first so YAML and Python importer changes are not left behind in an old image.</li>
+<li>YAML metric names are written as chart-level adhoc metrics rather than Superset saved metrics. This prevents <code>Metric &#39;event_count&#39; does not exist</code> and <code>Metric &#39;delay_rate&#39; does not exist</code> errors.</li>
+<li><code>SUM(...)</code> is selected for count/sum columns, and <code>AVG(...)</code> for rate and average columns.</li>
+<li>Temporal metadata remains explicit for timeseries charts. <code>v_delivery_event_volume.event_hour</code> is the dataset <code>main_dttm_col</code> and temporal column, and is also the chart&#39;s <code>x_axis</code> and <code>granularity_sqla</code> value.</li>
+<li><code>business_date</code> is recorded as a temporal column in the warehouse KPI dataset so future time-based charts follow the same rule.</li>
+</ul>
+<p>The goal is for the Superset dashboard to import reproducibly into a clean environment: datasets, charts, and the dashboard should be created without metric or datetime metadata errors during chart rendering.</p>
+<h3 id="adr-009-one-generator-two-data-types">ADR-009: One Generator, Two Data Types</h3>
+<p>The generator remains a single application:</p>
+<pre><code>
+src/producers/synthetic_logistics_producer.py
+</code></pre>
+<p>It produces two data types:</p>
+<ul>
+<li>Batch source rows.</li>
+<li>Stream events.</li>
+</ul>
+<p>Rationale:</p>
+<ul>
+<li>The same synthetic business domain is preserved.</li>
+<li>Batch and stream data remain logically consistent.</li>
+<li>No additional application complexity is introduced in the local lab.</li>
+</ul>
+<h3 id="adr-010-make-clean-and-make-purge-separation">ADR-010: <code>make clean</code> and <code>make purge</code> Separation</h3>
+<p><code>make clean</code> remains non-destructive:</p>
+<pre><code>
+docker compose down --remove-orphans
+</code></pre>
+<p><code>make purge</code> is for a destructive reset:</p>
+<pre><code>
+docker compose down --volumes --remove-orphans --rmi local
+</code></pre>
+<p>Rationale:</p>
+<ul>
+<li>Normal cleanup must not remove data volumes.</li>
+<li>Schema changes need a separate, explicit target for a full reset.</li>
+</ul>
+<h3 id="adr-011-producer-and-platform-tooling-image-separation">ADR-011: Producer and Platform Tooling Image Separation</h3>
+<p>Kafka broker infrastructure, the synthetic producer application, and operator tooling are kept in separate ownership boundaries:</p>
+<pre><code>
+services/producer/Dockerfile
+    -&gt; producer
+    -&gt; producer-continuous
+        <!-- ADR-001 -->
+        <div class="troubleshooting-card" id="adr-001">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-001</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Kafka KRaft Consensus (No ZooKeeper)</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Legacy Kafka deployments depend on Apache ZooKeeper, adding extra process overhead and network complexity for local developer machines.</p>
+            <p><strong>Decision:</strong> Deploy Apache Kafka 3.9.2 in single-node KRaft (Kafka Raft Metadata) mode.</p>
+            <p><strong>Consequences:</strong> Reduced memory footprint by ~500MB, eliminated ZooKeeper synchronization race conditions, and aligned the lab with modern Kafka architectures.</p>
+          </div>
+        </div>
+
+services/tooling/Dockerfile
+    -&gt; platform-tools health/E2E runner
+    -&gt; superset-importer
+</code></pre>
+<p>The producer image contains only <code>src/producers</code>, <code>kafka-python</code>, and <code>psycopg2-binary</code> for PostgreSQL batch seeding. The ClickHouse client, Requests, PyYAML, health/E2E scripts, and Superset assets remain in the one-shot tooling image.</p>
+<p>This separation does not change existing Make targets or Compose service names. Its purpose is to separate the producer runtime from BI import and platform-diagnostics dependencies, reduce image rebuild coupling, and create a clear service boundary for future producer refactoring.</p>
+<h3 id="adr-012-modular-producer-and-stable-continuous-rate">ADR-012: Modular Producer and Stable Continuous Rate</h3>
+<p>The producer entrypoint is preserved as the operator interface, while the implementation is split into configuration, event generation, PostgreSQL source, and Kafka streaming modules. These boundaries separate event contracts from transport and deployment configuration, enable focused unit tests, and provide a dedicated configuration adapter point for future metadata-driven configuration.</p>
+<p>The continuous producer has a default interval of 60 seconds and publishes a batch of 10 events per interval. The batch-of-10 model directly expresses the <code>T=00:00 -&gt; 10 events</code>, <code>T=00:01 -&gt; 10 events</code> semantics and keeps rate tests simple. The publisher uses monotonic fixed deadlines instead of a chain of relative <code>sleep(60)</code> calls, so serialization and Kafka flush time do not create cumulative rate drift. The existing <code>PRODUCER_CONTINUOUS_INTERVAL_SECONDS</code> environment override is retained for backward compatibility, while <code>PRODUCER_EVENTS_PER_INTERVAL</code> controls the record count per interval.</p>
+<h3 id="runtime-service-map">Runtime Service Map</h3>
+<pre><code>
+flowchart TB
+    subgraph compose[&quot;Docker Compose deliveryflow&quot;]
+        kafka[&quot;Kafka&quot;]
+        kafkaUi[&quot;Kafka UI&quot;]
+        producer[&quot;Producer&quot;]
+        platformTools[&quot;Platform Tools&lt;br/&gt;one-shot health / E2E&quot;]
+        supersetImporter[&quot;Superset Importer&lt;br/&gt;one-shot&quot;]
+        flinkJm[&quot;Flink JobManager&quot;]
+        flinkTm[&quot;Flink TaskManager&quot;]
+        sparkMaster[&quot;Spark Master&quot;]
+        sparkWorker[&quot;Spark Worker&quot;]
+        airflowWeb[&quot;Airflow Webserver&quot;]
+        airflowScheduler[&quot;Airflow Scheduler&quot;]
+        clickhouse[&quot;ClickHouse&quot;]
+        superset[&quot;Superset&quot;]
+        minio[&quot;MinIO&quot;]
+        nessie[&quot;Nessie&quot;]
+        pgAirflow[&quot;Postgres Airflow&quot;]
+        pgSource[&quot;Postgres Source&quot;]
+    end
+        <!-- ADR-002 -->
+        <div class="troubleshooting-card" id="adr-002">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">ADR-002</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Apache Flink for Real-Time Stream Processing</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Logistics operations require low-latency event-driven state tracking, out-of-order event handling via watermarks, and microsecond-level state updates.</p>
+            <p><strong>Decision:</strong> Adopt Apache Flink (Java DataStream API for complex Delivery state tracking; Table API/SQL for Fleet tumbling window aggregations).</p>
+            <p><strong>Consequences:</strong> Guarantees event-time correctness and provides high-throughput streaming directly into the ClickHouse serving layer.</p>
+          </div>
+        </div>
+
+    kafka --&gt; kafkaUi
+    producer --&gt; kafka
+    producer --&gt; pgSource
+    platformTools -. validates .-&gt; kafka
+    platformTools -. validates .-&gt; clickhouse
+    supersetImporter -. imports BI assets .-&gt; superset
+    kafka --&gt; flinkJm
+    flinkJm --&gt; flinkTm
+    flinkJm --&gt; clickhouse
+    airflowScheduler --&gt; sparkMaster
+    sparkMaster --&gt; sparkWorker
+    sparkMaster --&gt; clickhouse
+    sparkMaster --&gt; minio
+    sparkMaster --&gt; nessie
+    nessie --&gt; pgSource
+    airflowWeb --&gt; pgAirflow
+    airflowScheduler --&gt; pgAirflow
+    superset --&gt; clickhouse
+</code></pre>
+<h3 id="operational-rules">Operational Rules</h3>
+<ul>
+<li>Run <code>docker compose config --quiet</code> after runtime configuration changes.</li>
+<li>After schema changes, <code>make purge</code> may be required if an old volume remains.</li>
+<li>ClickHouse views should be the basis for dashboards.</li>
+<li>Batch jobs require source readiness; the KPI job may fail if ClickHouse <code>delivery_events</code> is empty.</li>
+<li>Submit the Flink job before starting the producer for streaming.</li>
+</ul>
+        <!-- ADR-003 -->
+        <div class="troubleshooting-card" id="adr-003">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-003</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">ClickHouse Columnar Serving Layer</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Querying transactional databases (PostgreSQL) or object lakehouses (Iceberg on MinIO) for sub-second dashboard rendering results in excessive latency and lock contention.</p>
+            <p><strong>Decision:</strong> ClickHouse serves as the unified real-time serving layer, utilizing <code>MergeTree</code> for append-only logs and <code>ReplacingMergeTree</code> for deduplicating state entities.</p>
+            <p><strong>Consequences:</strong> Delivers sub-100ms analytical queries across millions of rows, powering Superset dashboards effortlessly.</p>
+          </div>
+        </div>
+
+        <!-- ADR-004 -->
+        <div class="troubleshooting-card" id="adr-004">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">ADR-004</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Apache Spark for Heavy Batch Transformations</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Daily logistics KPI computation requires complex joins between operational events and dimensional tables across multiple data stores.</p>
+            <p><strong>Decision:</strong> PySpark 3.5.6 executes batch jobs submitted by Airflow, reading ClickHouse and PostgreSQL sources, and writing partitioned Iceberg snapshots.</p>
+            <p><strong>Consequences:</strong> High-performance distributed batch compute with rich support for Iceberg table formats and SQL extensions.</p>
+          </div>
+        </div>
+
+        <!-- ADR-005 -->
+        <div class="troubleshooting-card" id="adr-005">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-005</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Apache Iceberg + Nessie + MinIO Lakehouse</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Traditional Hive metastores are rigid, lack atomic transactions, and suffer from directory listing bottlenecks on cloud object stores.</p>
+            <p><strong>Decision:</strong> Modern Lakehouse architecture combining Apache Iceberg table format, Project Nessie REST catalog (with PostgreSQL backend), and MinIO S3 object storage.</p>
+            <p><strong>Consequences:</strong> ACID transactions, branch-based data versioning, schema evolution without rewriting data, and full compatibility with cloud data platforms.</p>
+          </div>
+        </div>
+
+        <!-- ADR-006 -->
+        <div class="troubleshooting-card" id="adr-006">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-006</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Dual PostgreSQL Service Isolation</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Combining operational business source tables and Airflow orchestrator metadata in a single database creates security risks and lifecycle coupling.</p>
+            <p><strong>Decision:</strong> Separate into two distinct PostgreSQL containers: <code>postgres-source</code> (port 5433, hosting <code>logistics_source</code> and <code>nessie_metadata</code>) and <code>postgres-airflow</code> (port 5434, hosting Airflow state).</p>
+            <p><strong>Consequences:</strong> Independent maintenance windows, clean failure isolation, and zero risk of schema poisoning between operational business data and workflow metadata.</p>
+          </div>
+        </div>
+
+        <!-- ADR-007 -->
+        <div class="troubleshooting-card" id="adr-007">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">ADR-007</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Apache Airflow for Batch Orchestration</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Scheduled batch jobs require SLA monitoring, automatic retries, task dependency graphs, and source readiness sensors.</p>
+            <p><strong>Decision:</strong> Apache Airflow 2.10.5 orchestrates batch workflows using <code>LocalExecutor</code>, keeping Airflow strictly out of the streaming data path.</p>
+            <p><strong>Consequences:</strong> Robust orchestration with clear separation: Airflow manages execution schedules, while Spark performs actual heavy data transformations.</p>
+          </div>
+        </div>
+
+        <!-- ADR-008 -->
+        <div class="troubleshooting-card" id="adr-008">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--bi">ADR-008</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Apache Superset BI-as-Code</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Manual UI-based dashboard creation is error-prone, non-reproducible, and cannot be peer-reviewed in version control.</p>
+            <p><strong>Decision:</strong> Treat dashboards as code via <code>configs/superset/deliveryflow_bi.yaml</code> and provision them via automated REST API scripts (<code>make superset-import</code>).</p>
+            <p><strong>Consequences:</strong> 100% reproducible BI layer, automated test coverage, and clean version control for charts, metrics, and dashboards.</p>
+          </div>
+        </div>
+
+        <!-- ADR-009 -->
+        <div class="troubleshooting-card" id="adr-009">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-009</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Single Synthetic Generator, Dual Data Modalities</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Maintaining separate generators for relational source tables and Kafka event streams leads to entity ID divergence and broken joins.</p>
+            <p><strong>Decision:</strong> A unified generator produces both transactional dimensional rows (PostgreSQL) and event streams (Kafka) using identical entity IDs (warehouses, vehicles, drivers).</p>
+            <p><strong>Consequences:</strong> Guaranteed referential integrity between streaming events and batch dimension lookups.</p>
+          </div>
+        </div>
+
+        <!-- ADR-010 -->
+        <div class="troubleshooting-card" id="adr-010">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">ADR-010</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Explicit Separation of make clean and make purge</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Developers frequently wipe Docker volumes by mistake when attempting routine service restarts, causing loss of local experiment state.</p>
+            <p><strong>Decision:</strong> <code>make clean</code> only stops containers and networks without touching volumes. <code>make purge</code> is explicitly reserved for destructive volume wipes and factory resets.</p>
+            <p><strong>Consequences:</strong> Eliminates accidental data loss while retaining an easy one-command factory reset path.</p>
+          </div>
+        </div>
+
+        <!-- ADR-011 -->
+        <div class="troubleshooting-card" id="adr-011">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">ADR-011</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Producer and Platform Tooling Image Separation</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Bundling heavy diagnostic packages (ClickHouse client, PySpark, PyIceberg) with the synthetic event producer created bloated images and slow rebuild times.</p>
+            <p><strong>Decision:</strong> Separate into <code>deliveryflow-producer</code> (lightweight, minimal dependencies) and <code>deliveryflow-tools</code> (full diagnostic and one-shot runner toolkit).</p>
+            <p><strong>Consequences:</strong> Producer image rebuilds in seconds; tooling updates do not trigger producer redeployments.</p>
+          </div>
+        </div>
+
+        <!-- ADR-012 -->
+        <div class="troubleshooting-card" id="adr-012">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">ADR-012</span>
+            <span class="service-card__badge" style="background: rgba(34, 197, 94, 0.15); color: #16a34a;">Implemented</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Modular Producer Architecture &amp; Monotonic Rate Limiting</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Context:</strong> Monolithic generator script and naive <code>time.sleep()</code> loops caused cumulative timestamp drift during sustained streaming runs.</p>
+            <p><strong>Decision:</strong> Refactor producer into clean submodules (<code>config</code>, <code>events</code>, <code>source</code>, <code>streaming</code>) and employ monotonic fixed deadline pacing.</p>
+            <p><strong>Consequences:</strong> Zero clock drift during continuous simulation; highly modular code with dedicated unit tests.</p>
+          </div>
+        </div>
+
+        <h2 id="operational-rules">Core Operational Principles</h2>
+        <ul>
+          <li><strong>Config Validation:</strong> Run <code>docker compose config --quiet</code> whenever environment variables or service definitions are modified.</li>
+          <li><strong>Schema Drift Management:</strong> Run <code>make purge</code> whenever table definitions are restructured to avoid conflicting volume schemas.</li>
+          <li><strong>Serving Layer Boundary:</strong> Superset dashboards must query prepared ClickHouse views, never raw Kafka topics or MinIO Parquet files directly.</li>
+          <li><strong>Batch Readiness Check:</strong> The daily KPI Spark batch job requires at least one completed delivery streaming lifecycle before execution.</li>
+          <li><strong>Job Submission Order:</strong> Submit the Flink streaming jobs (<code>make flink-submit</code>) prior to launching high-volume event producers.</li>
+        </ul>
+      </article>
+
+      <div class="page-toc">
+        <div class="page-toc__title">On this page</div>
+        <ul class="page-toc__list">
+          <li><a href="#pinned-versions">Compatibility Stack</a></li>
+          <li><a href="#adr-000">ADR-000: Control Plane</a></li>
+          <li><a href="#adr-001">ADR-001: Kafka KRaft</a></li>
+          <li><a href="#adr-002">ADR-002: Flink Streaming</a></li>
+          <li><a href="#adr-003">ADR-003: ClickHouse Serving</a></li>
+          <li><a href="#adr-004">ADR-004: Spark Batch</a></li>
+          <li><a href="#adr-005">ADR-005: Iceberg Lakehouse</a></li>
+          <li><a href="#adr-006">ADR-006: Dual Postgres</a></li>
+          <li><a href="#adr-007">ADR-007: Airflow Batch</a></li>
+          <li><a href="#adr-008">ADR-008: Superset BI</a></li>
+          <li><a href="#adr-009">ADR-009: Unified Generator</a></li>
+          <li><a href="#adr-010">ADR-010: Clean vs. Purge</a></li>
+          <li><a href="#adr-011">ADR-011: Image Isolation</a></li>
+          <li><a href="#adr-012">ADR-012: Modular Producer</a></li>
+          <li><a href="#operational-rules">Operational Rules</a></li>
+        </ul>
+      </div>
+    </main>
+  </body>
+  </div>
+</body>
+</html>

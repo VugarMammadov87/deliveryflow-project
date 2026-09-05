@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeliveryFlow Application Workflow | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="assets/css/documentation.css">
+    <script src="assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Application Workflow | DeliveryFlow Docs</title>
+  <meta name="description" content="End-to-end operational workflow of DeliveryFlow: streaming and batch pipelines, component roles, and data flow sequences.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Workflow</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html" class="active">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>DeliveryFlow Application Workflow</h1>
+        <p>Converted from docs/application-workflow.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#deliveryflow-application-workflow">DeliveryFlow Application Workflow</a>
+<a href="#multi-application-workflow-update">Multi-Application Workflow Update</a>
+<a href="#overall-logic">Overall Logic</a>
+<a href="#one-generator-application">One Generator Application</a>
+<a href="#runtime-image-ownership">Runtime Image Ownership</a>
+<a href="#continuous-stream-mode">Continuous Stream Mode</a>
+<a href="#stream-pipeline">Stream Pipeline</a>
+<a href="#kafka-role">Kafka Role</a>
+<a href="#flink-role">Flink Role</a>
+<a href="#batch-pipeline">Batch Pipeline</a>
+<a href="#spark-role">Spark Role</a>
+<a href="#airflow-role">Airflow Role</a>
+<a href="#storage-and-serving-layers">Storage and Serving Layers</a>
+<a href="#main-workflows">Main Workflows</a>
+<a href="#start-the-platform">Start the Platform</a>
+<a href="#submit-the-stream-job">Submit the Stream Job</a>
+<a href="#generate-data">Generate Data</a>
+<a href="#run-the-batch-kpi-job">Run the Batch KPI Job</a>
+<a href="#where-to-look">Where to Look</a>
+<a href="#key-principles">Key Principles</a></aside>
+      <article class="doc-article">
+        <h2 id="deliveryflow-application-workflow">DeliveryFlow Application Workflow</h2>
+<h3 id="multi-application-workflow-update">Multi-Application Workflow Update</h3>
+<p>DeliveryFlow now contains two stream applications. The original delivery application remains the default path, and the fleet vehicle telemetry application is selected explicitly with <code>APP=fleet</code>.</p>
+<p>Delivery operations:</p>
+<pre><code>
+Synthetic producer -&gt; Kafka delivery-events -&gt; DeliveryStreamingJob -&gt; ClickHouse delivery.* -&gt; Superset
+</code></pre>
+<p>Fleet telemetry:</p>
+<pre><code>
+Synthetic producer APP=fleet -&gt; Kafka vehicle-telemetry-events -&gt; VehicleTelemetrySqlJob -&gt; ClickHouse fleet.*
+</code></pre>
+<p>Fleet telemetry is implemented with Java + Flink SQL/Table API so the repository demonstrates a second streaming style without changing the existing Java DataStream delivery job. The job writes raw telemetry, current vehicle state, health alerts, and five-minute metrics into the <code>fleet</code> ClickHouse database.</p>
+<p>Fleet commands:</p>
+<pre><code>
+make submit-flink-job APP=fleet
+make produce APP=fleet
+make test-e2e APP=fleet
+</code></pre>
+<p>Fleet ownership files:</p>
+<ul>
+<li><code>configs/applications/fleet.yaml</code></li>
+<li><code>configs/datasets/fleet/vehicle_telemetry.yaml</code></li>
+<li><code>src/contracts/fleet/vehicle_telemetry_v1.schema.json</code></li>
+<li><code>services/flink/src/main/java/local/deliveryflow/VehicleTelemetrySqlJob.java</code></li>
+</ul>
+<p>This document explains step by step how applications, services, and batch and stream processes work in DeliveryFlow. It does more than list the services: it shows where data originates, which services process it, where it is stored, and how it appears as a report in Superset.</p>
+<h3 id="overall-logic">Overall Logic</h3>
+<p>DeliveryFlow is a logistics data platform built on local Docker Compose. It represents the same business domain through two data flows:</p>
+<ul>
+<li><strong>Stream processing</strong>: real-time delivery events move from Kafka to Flink and then to ClickHouse.</li>
+<li><strong>Batch processing</strong>: source and serving data are read by Spark, written to the Iceberg/Nessie/MinIO layer, and the KPI results are published back to ClickHouse.</li>
+</ul>
+<pre><code>
+flowchart LR
+    generator[&quot;Synthetic Logistics Generator&quot;]
+    postgres[&quot;PostgreSQL&lt;br/&gt;logistics_source&quot;]
+    kafka[&quot;Kafka&lt;br/&gt;delivery-events&quot;]
+    flink[&quot;Flink&lt;br/&gt;stream processing&quot;]
+    clickhouse[&quot;ClickHouse&lt;br/&gt;serving layer&quot;]
+    airflow[&quot;Airflow&lt;br/&gt;batch orchestration&quot;]
+    spark[&quot;Spark&lt;br/&gt;batch KPI job&quot;]
+    iceberg[&quot;Iceberg Tables&lt;br/&gt;bronze / gold&quot;]
+    nessie[&quot;Nessie&lt;br/&gt;catalog&quot;]
+    minio[&quot;MinIO&lt;br/&gt;object storage&quot;]
+    superset[&quot;Superset&lt;br/&gt;dashboards&quot;]
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          A step-by-step technical guide explaining how synthetic domain data originates, travels across distributed streaming and batch engines, lands in analytical storage, and surfaces in Superset BI dashboards.
+        </p>
+
+    generator --&gt;|batch seed| postgres
+    generator --&gt;|stream events| kafka
+    kafka --&gt; flink
+    flink --&gt; clickhouse
+    airflow --&gt; spark
+    clickhouse --&gt; spark
+    spark --&gt; iceberg
+    iceberg --&gt; nessie
+    iceberg --&gt; minio
+    spark --&gt; clickhouse
+    clickhouse --&gt; superset
+</code></pre>
+<h3 id="one-generator-application">One Generator Application</h3>
+<p>Generator file:</p>
+<pre><code>
+src/producers/synthetic_logistics_producer.py
+</code></pre>
+<p>The entrypoint contains only workflow orchestration and backward-compatible imports. The producer implementation is split into modules by responsibility:</p>
+<pre><code>
+src/producers/config.py       -&gt; environment configuration and validation
+src/producers/events.py       -&gt; Delivery and Fleet event builders
+src/producers/source.py       -&gt; PostgreSQL batch/source seed
+src/producers/streaming.py    -&gt; Kafka transport and continuous pacing
+</code></pre>
+<p>This application produces two data types:</p>
+<ul>
+<li>Batch/source data for PostgreSQL.</li>
+<li>Stream delivery events for Kafka.</li>
+</ul>
+<p>Select the mode with <code>PRODUCER_MODE</code>:</p>
+<ul>
+<li><code>stream</code>: publishes only Kafka events.</li>
+<li><code>batch</code>: seeds only the PostgreSQL source tables.</li>
+<li><code>both</code>: seeds PostgreSQL first, then publishes Kafka events.</li>
+</ul>
+<p>Default local mode:</p>
+<pre><code>
+PRODUCER_MODE=both
+</code></pre>
+<h4 id="runtime-image-ownership">Runtime Image Ownership</h4>
+<p>The generator source remains the single application entrypoint, but container ownership is split across two images:</p>
+<pre><code>
+services/producer/Dockerfile
+    -&gt; producer and producer-continuous
+    -&gt; event generation and PostgreSQL seed runtime only
+        <h2 id="overall-logic">Overall Platform Logic</h2>
+        <p>
+          DeliveryFlow represents the same logistics business domain through two complementary data processing flows:
+        </p>
+        <ul>
+          <li><strong>Real-Time Stream Processing:</strong> Asynchronous order events and IoT telemetry move from the synthetic producer to Kafka, are transformed with event-time semantics by Flink, and land in ClickHouse within milliseconds.</li>
+          <li><strong>Analytical Batch Processing:</strong> On a scheduled cadence, Airflow verifies ClickHouse source readiness and triggers Spark batch jobs to join streaming events with dimensional PostgreSQL tables, committing ACID snapshots into Iceberg and publishing daily KPIs back to ClickHouse.</li>
+        </ul>
+
+services/tooling/Dockerfile
+    -&gt; platform-tools and superset-importer
+    -&gt; health, E2E, and BI-as-Code import tooling
+</code></pre>
+<p><code>make produce</code> and <code>make produce APP=fleet</code> use the minimal producer image. <code>make health</code>, <code>make test-e2e</code>, and <code>make import-superset-assets</code> run from the one-shot tooling image. Command names and generator behavior remain unchanged.</p>
+<p>The events generated by the application simulate different stages of the logistics process:</p>
+<ul>
+<li><code>ORDER_LOADED</code></li>
+<li><code>VEHICLE_DEPARTED</code></li>
+<li><code>IN_TRANSIT</code></li>
+<li><code>DELIVERY_DELAYED</code></li>
+<li><code>DELIVERED</code></li>
+</ul>
+<p>The event payload now contains more than status and coordinates. It includes richer fields for reporting:</p>
+<ul>
+<li><code>service_level</code></li>
+<li><code>priority</code></li>
+<li><code>customer_id</code></li>
+<li><code>destination_city</code></li>
+<li><code>package_count</code></li>
+<li><code>order_value</code></li>
+<li><code>payment_method</code></li>
+<li><code>planned_distance_km</code></li>
+<li><code>traffic_condition</code></li>
+<li><code>weather_condition</code></li>
+</ul>
+<h4 id="continuous-stream-mode">Continuous Stream Mode</h4>
+<p>The stream generator can run as a continuous service instead of stopping after one run. The <code>producer-continuous</code> service starts with <code>PRODUCER_MODE=stream</code> and <code>PRODUCER_CONTINUOUS=true</code>.</p>
+<p>Default rate:</p>
+<pre><code>
+PRODUCER_CONTINUOUS_INTERVAL_SECONDS=60
+PRODUCER_EVENTS_PER_INTERVAL=10
+</code></pre>
+<p>This publishes a batch of 10 events to the Kafka <code>delivery-events</code> topic every 60 seconds. The batch-of-10 approach keeps rate tests simple, while monotonic-deadline pacing prevents event serialization and Kafka flush time from accumulating into the next interval. This mode is useful for verifying that event volume, latest delivery state, and vehicle utilization charts update over time in Superset.</p>
+<p>Start the continuous producer manually:</p>
+<pre><code>
+make produce-continuous
+</code></pre>
+<p>View the logs:</p>
+<pre><code>
+make logs-producer-continuous
+</code></pre>
+<p>Stop the continuous producer:</p>
+<pre><code>
+make stop-continuous-producer
+</code></pre>
+<h3 id="stream-pipeline">Stream Pipeline</h3>
+<p>The stream pipeline provides real-time monitoring.</p>
+<pre><code>
+Generator -&gt; Kafka -&gt; Flink -&gt; ClickHouse -&gt; Superset
+</code></pre>
+<pre><code>
+sequenceDiagram
+    participant G as Generator
+    participant K as Kafka
+    participant F as Flink
+    participant CH as ClickHouse
+    participant S as Superset
+        <div class="diagram-container">
+          <div class="flow-grid">
+            <div class="flow-step">
+              <div class="flow-step__title">Synthetic Generator</div>
+              <div class="flow-step__tech">Python 3.10+</div>
+              <div class="flow-step__desc">Generates SQL seeds &amp; JSON Kafka events</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Kafka &amp; Flink</div>
+              <div class="flow-step__tech">Stream Engine</div>
+              <div class="flow-step__desc">Watermarked event processing &amp; state projection</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">ClickHouse</div>
+              <div class="flow-step__tech">Serving Layer</div>
+              <div class="flow-step__desc">Sub-second analytical queries &amp; BI views</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Airflow &amp; Spark</div>
+              <div class="flow-step__tech">Batch Engine</div>
+              <div class="flow-step__desc">Iceberg Lakehouse ETL &amp; KPI aggregation</div>
+            </div>
+            <div class="flow-arrow">&rarr;</div>
+            <div class="flow-step">
+              <div class="flow-step__title">Superset BI</div>
+              <div class="flow-step__tech">BI-as-Code</div>
+              <div class="flow-step__desc">Declarative executive operational dashboards</div>
+            </div>
+          </div>
+          <div class="diagram-caption">Figure 1: Complete end-to-end data lifecycle in DeliveryFlow.</div>
+        </div>
+
+    G-&gt;&gt;K: Publish JSON delivery event
+    K-&gt;&gt;F: Flink consumes from delivery-events topic
+    F-&gt;&gt;F: Parse JSON and validate schema_version
+    F-&gt;&gt;F: Key the stream by delivery_id
+    F-&gt;&gt;CH: Write delivery_events history
+    F-&gt;&gt;CH: Update delivery_current_state
+    F-&gt;&gt;CH: Update vehicle_current_state
+    S-&gt;&gt;CH: Read dashboard queries from ClickHouse
+</code></pre>
+<h4 id="kafka-role">Kafka Role</h4>
+<p><strong>Purpose:</strong> Kafka is the distributed event transport layer for all asynchronous domain messages.</p>
+<p><strong>Why it exists:</strong> It decouples event generators from stream processing consumers and buffers incoming real-time traffic reliably.</p>
+<p><strong>Input:</strong> Raw JSON event payloads published by the synthetic producer.</p>
+<p><strong>Output:</strong> Partitioned, ordered event streams consumed by downstream Flink jobs.</p>
+<p><strong>Consumer:</strong> Flink streaming applications (<code>DeliveryStreamingJob</code> and <code>VehicleTelemetrySqlJob</code>).</p>
+<p><strong>Example:</strong> The <code>delivery-events</code> topic carries delivery lifecycle events keyed by <code>delivery_id</code>. The <code>vehicle-telemetry-events</code> topic carries telemetry metrics keyed by <code>vehicle_id</code>.</p>
+<h4 id="flink-role">Flink Role</h4>
+<p><strong>Purpose:</strong> Flink performs stateful, low-latency stream processing and operational projections.</p>
+<p><strong>Why it exists:</strong> It provides sub-second transformations, event-time windowing, schema validation, and writes current-state snapshots directly into the serving layer.</p>
+<p><strong>Input:</strong> Versioned JSON events from Kafka topics (<code>delivery-events</code> and <code>vehicle-telemetry-events</code>).</p>
+<p><strong>Output:</strong> Validated operational state records and immutable event records written via HTTP JSONEachRow into ClickHouse.</p>
+<p><strong>Consumer:</strong> ClickHouse operational serving tables (<code>delivery.*</code> and <code>fleet.*</code>), which are subsequently read by Apache Superset dashboards.</p>
+<p><strong>Primary Jobs:</strong></p>
+<ul>
+<li><code>DeliveryStreamingJob.java</code>: Java DataStream API pipeline for the Delivery application.</li>
+<li><code>VehicleTelemetrySqlJob.java</code>: Java Flink SQL/Table API pipeline for the Fleet application.</li>
+</ul>
+<p><strong>Sink:</strong> <code>ClickHouseDeliverySink.java</code> writes to three delivery serving tables:</p>
+<ul>
+<li><code>delivery.delivery_events</code> (immutable audit history)</li>
+<li><code>delivery.delivery_current_state</code> (latest state per delivery)</li>
+<li><code>delivery.vehicle_current_state</code> (latest state per vehicle)</li>
+</ul>
+<h3 id="batch-pipeline">Batch Pipeline</h3>
+<p>The batch pipeline provides daily analytics, lakehouse storage, and historical reporting.</p>
+<pre><code>
+ClickHouse -&gt; Spark -&gt; Iceberg/Nessie/MinIO -&gt; ClickHouse -&gt; Superset
+</code></pre>
+<pre><code>
+sequenceDiagram
+    participant A as Airflow
+    participant CH as ClickHouse
+    participant SP as Spark
+    participant I as Iceberg
+    participant N as Nessie
+    participant M as MinIO
+    participant S as Superset
+        <h2 id="synthetic-generator">Synthetic Domain Generator</h2>
+        <p>
+          The generator application (<code>src/producers/synthetic_logistics_producer.py</code>) drives all test and demonstration data across the platform. In accordance with <strong>ADR-009</strong> and <strong>ADR-012</strong>, it is architected with modular responsibilities:
+        </p>
+
+    A-&gt;&gt;CH: Check that delivery_events is not empty
+    A-&gt;&gt;SP: Submit daily_kpi_job.py with spark-submit
+    SP-&gt;&gt;CH: Read delivery.delivery_events
+    SP-&gt;&gt;SP: Calculate enrichment and KPIs
+    SP-&gt;&gt;I: Write bronze.raw_delivery_events
+    SP-&gt;&gt;I: Write gold.daily_delivery_kpi
+    I-&gt;&gt;N: Commit metadata
+    I-&gt;&gt;M: Store data and metadata files
+    SP-&gt;&gt;CH: Publish daily_delivery_kpi
+    S-&gt;&gt;CH: Read KPIs for the dashboard
+</code></pre>
+<h4 id="spark-role">Spark Role</h4>
+<p><strong>Purpose:</strong> Spark is the distributed batch computation engine for heavy historical aggregations and Lakehouse management.</p>
+<p><strong>Why it exists:</strong> It handles large-scale data transformation, analytical KPI computation, and Iceberg bronze/gold table management with ACID guarantees.</p>
+<p><strong>Input:</strong> Event history from ClickHouse <code>delivery.delivery_events</code> and relational source data from PostgreSQL <code>logistics_source</code>.</p>
+<p><strong>Output:</strong></p>
+<ul>
+<li>Analytical Parquet files committed to Iceberg tables via Nessie catalog.</li>
+<li>Aggregated daily KPI rows published to ClickHouse <code>delivery.daily_delivery_kpi</code>.</li>
+</ul>
+<p><strong>Consumer:</strong></p>
+<ul>
+<li>Long-term analytics queries running against Iceberg.</li>
+<li>Superset daily KPI charts querying ClickHouse.</li>
+</ul>
+<p><strong>Primary Job:</strong> <code>src/etl/apps/daily_kpi_job.py</code> calculates key operational metrics:</p>
+<ul>
+<li>completed deliveries</li>
+<li>delayed deliveries</li>
+<li>on-time deliveries</li>
+<li>delay rate and on-time rate</li>
+<li>average delay minutes</li>
+<li>average vehicle utilization</li>
+<li>total order value and package count</li>
+<li>average distance km</li>
+</ul>
+<h4 id="airflow-role">Airflow Role</h4>
+<p><strong>Purpose:</strong> Airflow acts as the batch orchestration control plane and workflow scheduler.</p>
+<p><strong>Why it exists:</strong> It provides dependable task scheduling, SLA tracking, readiness verification, and dependency management for batch pipelines.</p>
+<p><strong>Input:</strong> Scheduled triggers (daily cron intervals or manual operator runs).</p>
+<p><strong>Output:</strong> Triggered container commands (<code>spark-submit</code> execution) and execution status logs.</p>
+<p><strong>Consumer:</strong> Platform operators and monitoring systems.</p>
+<p><strong>Primary DAG:</strong> <code>dags/delivery_daily_kpi.py</code> defines two sequenced tasks:</p>
+<ul>
+<li><code>check_source_readiness</code>: verifies that ClickHouse contains <code>delivery_events</code> data before triggering Spark.</li>
+<li><code>run_spark_daily_batch</code>: triggers the Spark daily KPI job inside the Spark master container.</li>
+</ul>
+<h3 id="storage-and-serving-layers">Storage and Serving Layers</h3>
+<pre><code>
+flowchart TB
+    subgraph source[&quot;Source / Metadata&quot;]
+        pgsrc[&quot;PostgreSQL&lt;br/&gt;logistics_source&quot;]
+        pgnessie[&quot;PostgreSQL&lt;br/&gt;nessie_metadata&quot;]
+    end
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Module</th>
+                <th>Responsibility</th>
+                <th>Target Destination</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>src/producers/config.py</code></td>
+                <td>Environment variable parsing and validation</td>
+                <td>Runtime configuration</td>
+              </tr>
+              <tr>
+                <td><code>src/producers/events.py</code></td>
+                <td>Deterministic event builders for Delivery and Fleet schemas</td>
+                <td>JSON contract structures</td>
+              </tr>
+              <tr>
+                <td><code>src/producers/source.py</code></td>
+                <td>PostgreSQL dimensional seeding (warehouses, vehicles, orders)</td>
+                <td><code>postgres-source:5433</code></td>
+              </tr>
+              <tr>
+                <td><code>src/producers/streaming.py</code></td>
+                <td>Kafka transport client with monotonic-deadline rate pacing</td>
+                <td><code>kafka:9092</code> broker</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+    subgraph streamServing[&quot;Operational Serving&quot;]
+        chEvents[&quot;delivery_events&quot;]
+        chDelivery[&quot;delivery_current_state&quot;]
+        chVehicle[&quot;vehicle_current_state&quot;]
+    end
+        <h3>Generator Execution Modes</h3>
+        <p>
+          Configure the generator behavior using the <code>PRODUCER_MODE</code> setting:
+        </p>
+        <ul>
+          <li><code>PRODUCER_MODE=stream</code>: Publishes only real-time Kafka events.</li>
+          <li><code>PRODUCER_MODE=batch</code>: Seeds only relational PostgreSQL source tables.</li>
+          <li><code>PRODUCER_MODE=both</code> (Default): Seeds PostgreSQL dimensional tables first, then immediately begins publishing Kafka streaming events.</li>
+        </ul>
+
+    subgraph lakehouse[&quot;Lakehouse&quot;]
+        bronze[&quot;bronze.raw_delivery_events&quot;]
+        gold[&quot;gold.daily_delivery_kpi&quot;]
+        nessie[&quot;Nessie catalog&quot;]
+        minio[&quot;MinIO warehouse&quot;]
+    end
+        <h2 id="streaming-roles">Stream Processing Component Roles</h2>
+
+    subgraph bi[&quot;BI Serving&quot;]
+        kpi[&quot;daily_delivery_kpi&quot;]
+        views[&quot;Superset report views&quot;]
+        superset[&quot;Superset dashboards&quot;]
+    end
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Message Bus</div>
+            <h3 class="service-card__title">Apache Kafka (KRaft)</h3>
+            <p><strong>Purpose:</strong> Asynchronous, distributed event ingestion backbone.</p>
+            <p><strong>Why it exists:</strong> Decouples producers from consumers and buffers high-velocity real-time event spikes.</p>
+            <p><strong>Input:</strong> Raw JSON event payloads published by the synthetic producer.</p>
+            <p><strong>Output:</strong> Partitioned, ordered event streams consumed by downstream Flink jobs.</p>
+            <p><strong>Primary Topics:</strong> <code>delivery-events</code> (keyed by <code>delivery_id</code>) and <code>vehicle-telemetry-events</code> (keyed by <code>vehicle_id</code>).</p>
+          </div>
+
+    pgsrc --&gt; spark[&quot;Spark batch&quot;]
+    chEvents --&gt; spark
+    spark --&gt; bronze
+    spark --&gt; gold
+    bronze --&gt; nessie
+    gold --&gt; nessie
+    bronze --&gt; minio
+    gold --&gt; minio
+    spark --&gt; kpi
+    chEvents --&gt; views
+    chDelivery --&gt; views
+    chVehicle --&gt; views
+    kpi --&gt; views
+    views --&gt; superset
+</code></pre>
+<h3 id="main-workflows">Main Workflows</h3>
+<h4 id="start-the-platform">Start the Platform</h4>
+<pre><code>
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Stream Engine</div>
+            <h3 class="service-card__title">Apache Flink</h3>
+            <p><strong>Purpose:</strong> Stateful event-time streaming compute and real-time state projection.</p>
+            <p><strong>Why it exists:</strong> Handles out-of-order events via watermarks, maintains delivery state, and computes tumbling window aggregations.</p>
+            <p><strong>Input:</strong> Versioned JSON messages from Kafka topics.</p>
+            <p><strong>Output:</strong> Validated operational records written via HTTP JSONEachRow into ClickHouse tables.</p>
+            <p><strong>Primary Jobs:</strong> <code>DeliveryStreamingJob.java</code> (DataStream API) and <code>VehicleTelemetrySqlJob.java</code> (Table API/SQL).</p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Serving Layer</div>
+            <h3 class="service-card__title">ClickHouse Analytics</h3>
+            <p><strong>Purpose:</strong> Low-latency columnar database for real-time serving and BI analytics.</p>
+            <p><strong>Why it exists:</strong> Delivers sub-second queries across millions of rows without loading transactional databases or lakehouse files.</p>
+            <p><strong>Input:</strong> Micro-batched JSON rows from Flink sinks and daily KPI summaries from Spark batch jobs.</p>
+            <p><strong>Output:</strong> High-performance SQL query results and pre-aggregated analytical views.</p>
+            <p><strong>Serving Engines:</strong> <code>MergeTree</code> for event logs; <code>ReplacingMergeTree</code> for current state.</p>
+          </div>
+        </div>
+
+        <h2 id="batch-roles">Batch &amp; Lakehouse Component Roles</h2>
+
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Batch Orchestrator</div>
+            <h3 class="service-card__title">Apache Airflow</h3>
+            <p><strong>Purpose:</strong> Workflow scheduler and batch control plane.</p>
+            <p><strong>Why it exists:</strong> Provides deterministic scheduling, dependency management, SLA alerting, and source readiness sensors.</p>
+            <p><strong>Input:</strong> Scheduled cron intervals or operator CLI triggers.</p>
+            <p><strong>Output:</strong> Orchestrated task status and Spark job submission commands.</p>
+            <p><strong>Primary DAG:</strong> <code>dags/delivery_daily_kpi.py</code> (verifies ClickHouse readiness, then submits Spark KPI job).</p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Batch Compute</div>
+            <h3 class="service-card__title">Apache Spark (PySpark)</h3>
+            <p><strong>Purpose:</strong> Distributed batch engine for heavy joins and Lakehouse commits.</p>
+            <p><strong>Why it exists:</strong> Computes historical delivery KPIs across ClickHouse events and PostgreSQL dimensions with ACID safety.</p>
+            <p><strong>Input:</strong> ClickHouse event tables and PostgreSQL source tables over JDBC.</p>
+            <p><strong>Output:</strong> Partitioned Iceberg tables in MinIO and aggregated KPI records in ClickHouse.</p>
+            <p><strong>Primary Job:</strong> <code>src/etl/apps/daily_kpi_job.py</code>.</p>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Lakehouse Core</div>
+            <h3 class="service-card__title">Iceberg + Nessie + MinIO</h3>
+            <p><strong>Purpose:</strong> Modern Open Table Format Lakehouse storage.</p>
+            <p><strong>Why it exists:</strong> Provides ACID transactions, time travel, schema evolution, and Git-like catalog branching on top of object storage.</p>
+            <p><strong>Storage:</strong> MinIO S3 bucket <code>s3://lakehouse/warehouse/</code>.</p>
+            <p><strong>Catalog:</strong> Project Nessie REST catalog tracking Bronze and Gold table snapshots.</p>
+          </div>
+        </div>
+
+        <h2 id="operational-commands">Operational Cheat Sheet</h2>
+        <p>
+          Quick reference for running each workflow step from terminal:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Workflow Execution</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># 1. Start all infrastructure containers
+make up
+</code></pre>
+<p>This command builds and starts the Docker Compose services.</p>
+<h4 id="submit-the-stream-job">Submit the Stream Job</h4>
+<pre><code>
+make submit-flink-job
+</code></pre>
+<p>This command submits the Flink job to the JobManager.</p>
+<h4 id="generate-data">Generate Data</h4>
+<p>Batch and stream together:</p>
+<pre><code>
+make produce
+</code></pre>
+<p>Stream only:</p>
+<pre><code>
+make produce-stream
+</code></pre>
+<p>PostgreSQL batch source only:</p>
+<pre><code>
+make seed-batch-source
+</code></pre>
+<h4 id="run-the-batch-kpi-job">Run the Batch KPI Job</h4>
+<pre><code>
+make spark-daily-kpi
+</code></pre>
+<p>This command runs the Spark job and writes KPI results to both Iceberg and ClickHouse.</p>
+<h3 id="where-to-look">Where to Look</h3>
+<p>Service UIs:</p>
+<ul>
+<li>Kafka UI: <code>http://localhost:8083</code></li>
+<li>Flink UI: <code>http://localhost:8081</code></li>
+<li>Spark UI: <code>http://localhost:8082</code></li>
+<li>Airflow UI: <code>http://localhost:8080</code></li>
+<li>Superset UI: <code>http://localhost:8088</code></li>
+<li>Superset BI-as-code import:</li>
+</ul>
+<pre><code>
+make import-superset-assets
+</code></pre>
+<p>This import creates or updates the database connection, five datasets, five charts, and the <code>DeliveryFlow Operations Dashboard</code> from <code>configs/superset/deliveryflow_bi.yaml</code>. The importer converts chart metrics to Superset adhoc metric format and writes <code>event_hour</code> datetime-axis metadata for the timeseries chart.</p>
+<ul>
+<li>MinIO Console: <code>http://localhost:9001</code></li>
+</ul>
+<p>Database inspection:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;\dt&quot;
+docker compose exec clickhouse clickhouse-client --query &quot;SHOW TABLES FROM delivery&quot;
+</code></pre>
+<h3 id="key-principles">Key Principles</h3>
+<ul>
+<li>Kafka provides event transport, not the analytical source of truth.</li>
+<li>Flink writes real-time state and operational history.</li>
+<li>Spark performs batch aggregation and lakehouse writes.</li>
+<li>Iceberg/Nessie/MinIO provide long-term analytical storage.</li>
+<li>ClickHouse is the serving layer.</li>
+<li>Superset is the dashboard layer.</li>
+<li>Airflow is the batch orchestration layer.</li>
+</ul>
+
+# 2. Check cluster readiness
+make health
+
+# 3. Submit streaming jobs to Flink cluster
+make flink-submit
+
+# 4. Generate Delivery stream events
+make stream-demo
+
+# 5. Generate Fleet telemetry events
+make fleet-demo
+
+# 6. Execute Lakehouse batch KPI job
+make run-batch-kpi
+
+# 7. Import BI dashboards into Superset
+make superset-import</code></pre>
+        </div>
+      </article>
+
+      <div class="page-toc">
+        <div class="page-toc__title">On this page</div>
+        <ul class="page-toc__list">
+          <li><a href="#overall-logic">Platform Logic</a></li>
+          <li><a href="#synthetic-generator">Synthetic Generator</a></li>
+          <li><a href="#streaming-roles">Stream Roles</a></li>
+          <li><a href="#batch-roles">Batch &amp; Lakehouse Roles</a></li>
+          <li><a href="#operational-commands">Operational Cheat Sheet</a></li>
+        </ul>
+      </div>
+    </main>
+  </body>
+  </div>
+</body>
+</html>

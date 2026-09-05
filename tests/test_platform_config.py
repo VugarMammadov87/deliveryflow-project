@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Tests for DeliveryFlow central platform configuration loading.
+
+These tests verify that platform service settings (Kafka topics, ClickHouse
+endpoints, authentication parameters) resolve correctly from configuration files
+and environment overrides.
+"""
+
 from deliveryflow_config import load_platform_config
 
 

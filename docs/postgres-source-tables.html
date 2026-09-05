@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PostgreSQL Source Tables | DeliveryFlow Docs</title>
+    <link rel="stylesheet" href="assets/css/documentation.css">
+    <script src="assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-shell">
+      <nav class="portal-nav" aria-label="Documentation navigation">
+        <a class="brand" href="index.html">DeliveryFlow Docs</a>
+        <div>
+          <a href="architecture-decisions.html">Architecture</a>
+          <a href="application-workflow.html">Workflow</a>
+          <a href="superset-serving.html">BI</a>
+          <a href="scalability-multi-application.html">Scale</a>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme</button>
+      </nav>
+      <section class="doc-hero">
+        <p class="eyebrow">Converted Documentation</p>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PostgreSQL Source Tables | DeliveryFlow Docs</title>
+  <meta name="description" content="Schema documentation, ERD, and table definitions for PostgreSQL source data in DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Data Sources</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html" class="active">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>PostgreSQL Source Tables</h1>
+        <p>Converted from docs/postgres-source-tables.md. The Markdown source remains available for editing and review.</p>
+      </section>
+    </header>
+    <main id="main" class="doc-layout">
+      <aside class="doc-toc" aria-label="Page sections"><a href="#postgresql-source-tables">PostgreSQL Source Tables</a>
+<a href="#postgresql-service-map">PostgreSQL Service Map</a>
+<a href="#what-is-postgres-source-for">What Is `postgres-source` For?</a>
+<a href="#entity-relationship-diagram">Entity Relationship Diagram</a>
+<a href="#table-1-warehouses">Table 1: `warehouses`</a>
+<a href="#table-2-vehicles">Table 2: `vehicles`</a>
+<a href="#table-3-drivers">Table 3: `drivers`</a>
+<a href="#table-4-customer-orders">Table 4: `customer_orders`</a>
+<a href="#table-5-shipments">Table 5: `shipments`</a>
+<a href="#table-6-delivery-plans">Table 6: `delivery_plans`</a>
+<a href="#batch-source-seed-flow">Batch Source Seed Flow</a>
+<a href="#inspect-commands">Inspect Commands</a>
+<a href="#postgresql-and-other-services">PostgreSQL and Other Services</a>
+<a href="#important-notes">Important Notes</a></aside>
+      <article class="doc-article">
+        <h2 id="postgresql-source-tables">PostgreSQL Source Tables</h2>
+<p>This document explains the PostgreSQL source layer in DeliveryFlow. PostgreSQL is used here for two different purposes:</p>
+<ul>
+<li>Airflow metadata database.</li>
+<li>The logistics source and Nessie metadata databases.</li>
+</ul>
+<p>The primary source data is in the <code>postgres-source</code> service.</p>
+<h3 id="postgresql-service-map">PostgreSQL Service Map</h3>
+<pre><code>
+flowchart TB
+    subgraph pgAirflow[&quot;postgres-airflow&quot;]
+        airflowDb[&quot;airflow_metadata&lt;br/&gt;DAG state, task state, users&quot;]
+    end
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          PostgreSQL serves as the simulated operational source system (ERP/WMS/TMS) for logistics business master data, orders, shipments, and dispatch plans.
+        </p>
+
+    subgraph pgSource[&quot;postgres-source&quot;]
+        logistics[&quot;logistics_source&lt;br/&gt;source batch tables&quot;]
+        nessieMeta[&quot;nessie_metadata&lt;br/&gt;Nessie catalog metadata&quot;]
+    end
+        <h2 id="service-separation">Dual PostgreSQL Service Separation</h2>
+        <p>
+          DeliveryFlow isolates platform orchestration state from business source data by deploying two independent PostgreSQL containers:
+        </p>
+
+    airflow[&quot;Airflow&quot;] --&gt; airflowDb
+    generator[&quot;Generator batch mode&quot;] --&gt; logistics
+    nessie[&quot;Nessie&quot;] --&gt; nessieMeta
+    spark[&quot;Spark batch jobs&quot;] -. future source reads .-&gt; logistics
+</code></pre>
+<h3 id="what-is-postgres-source-for">What Is <code>postgres-source</code> For?</h3>
+<p><code>postgres-source</code> acts as the local source system. In a real company, this data could come from ERP, OMS, WMS, or TMS systems. In this project, those source systems are simplified and represented with PostgreSQL tables.</p>
+<p>Database:</p>
+<pre><code>
+logistics_source
+</code></pre>
+<p>Init script:</p>
+<pre><code>
+services/postgres/source-init/003_create_source_tables.sh
+</code></pre>
+<p>The generator batch mode seeds these tables:</p>
+<pre><code>
+make seed-batch-source
+</code></pre>
+<p>or, by default:</p>
+<pre><code>
+make produce
+</code></pre>
+<h3 id="entity-relationship-diagram">Entity Relationship Diagram</h3>
+<pre><code>
+erDiagram
+    WAREHOUSES ||--o{ SHIPMENTS : owns
+    CUSTOMER_ORDERS ||--o{ SHIPMENTS : creates
+    SHIPMENTS ||--|| DELIVERY_PLANS : planned_as
+    VEHICLES ||--o{ DELIVERY_PLANS : assigned
+    DRIVERS ||--o{ DELIVERY_PLANS : assigned
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">postgres-airflow</h3>
+              <span class="badge badge--implemented">Platform</span>
+            </div>
+            <div class="service-card__role">Orchestration Metadata Store</div>
+            <div class="service-card__body">
+              <p>Hosts database <code>airflow_metadata</code>. Stores DAG definitions, task execution logs, state transitions, variables, and user credentials.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Port:</strong> 15432 (Internal: 5432)</span>
+              <span><strong>User:</strong> <code>airflow</code></span>
+            </div>
+          </div>
+
+    WAREHOUSES {
+        text warehouse_id PK
+        text warehouse_name
+        text region
+        text city
+        numeric latitude
+        numeric longitude
+    }
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">postgres-source</h3>
+              <span class="badge badge--implemented">Business</span>
+            </div>
+            <div class="service-card__role">Operational Logistics Data Store</div>
+            <div class="service-card__body">
+              <p>Hosts <code>logistics_source</code> (business relational tables) and <code>nessie_metadata</code> (backend relational store for the Nessie Iceberg catalog).</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Port:</strong> 15433 (Internal: 5432)</span>
+              <span><strong>User:</strong> <code>source_app</code> / <code>nessie_app</code></span>
+            </div>
+          </div>
+        </div>
+
+    VEHICLES {
+        text vehicle_id PK
+        text plate_number
+        text vehicle_type
+        numeric capacity_total
+        boolean active
+    }
+        <h2 id="erd-diagram">Entity Relationship Diagram (ERD)</h2>
+        <p>
+          The <code>logistics_source</code> database models a typical freight dispatch ecosystem:
+        </p>
+
+    DRIVERS {
+        text driver_id PK
+        text full_name
+        text phone_number
+        boolean active
+    }
+        <div class="diagram-container">
+          <div style="font-family: monospace; font-size: 0.9rem; line-height: 1.6; background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); overflow-x: auto;">
+            <pre style="background: transparent; color: inherit; border: none; padding: 0; margin: 0;">
++------------------+         +------------------+         +------------------+
+|    warehouses    |         | customer_orders  |         |     vehicles     |
++------------------+         +------------------+         +------------------+
+| PK warehouse_id  |         | PK order_id      |         | PK vehicle_id    |
+|    warehouse_name|         |    customer_id   |         |    plate_number  |
+|    region        |         |    customer_reg. |         |    capacity_total|
+|    latitude/long |         |    order_value   |         |    active        |
++--------+---------+         +--------+---------+         +--------+---------+
+         |                            |                            |
+         | 1                          | 1                          |
+         |                            |                            |
+         | N                          | N                          |
++--------+----------------------------+---------+                  |
+|                   shipments                   |                  |
++-----------------------------------------------+                  |
+| PK shipment_id                                |                  |
+| FK order_id ----------------------------------+                  |
+| FK warehouse_id                               |                  |
+|    shipment_status                            |                  |
++-----------------------+-----------------------+                  |
+                        | 1                                        |
+                        |                                          |
+                        | N                                        | N
++-----------------------+------------------------------------------+---------+
+|                                delivery_plans                              |
++----------------------------------------------------------------------------+
+| PK delivery_id                                                             |
+| FK shipment_id                                                             |
+| FK vehicle_id -------------------------------------------------------------+
+| FK driver_id ------------------------------------&gt; [ drivers (PK driver_id) ]
+|    route_id                                                                |
+|    planned_departure_at / planned_arrival_at                               |
+|    planned_distance_km                                                     |
++----------------------------------------------------------------------------+</pre>
+          </div>
+          <div class="diagram-caption">Figure 1: Operational relational schema in logistics_source.</div>
+        </div>
+
+    CUSTOMER_ORDERS {
+        text order_id PK
+        text customer_id
+        text customer_region
+        text destination_city
+        numeric destination_latitude
+        numeric destination_longitude
+        text service_level
+        text priority
+        integer package_count
+        numeric order_value
+        text payment_method
+        timestamptz order_created_at
+        timestamptz promised_delivery_at
+    }
+        <h2 id="table-dictionaries">Table Dictionaries</h2>
+
+    SHIPMENTS {
+        text shipment_id PK
+        text order_id FK
+        text warehouse_id FK
+        text shipment_status
+    }
+        <h3>1. <code>warehouses</code></h3>
+        <p>Distribution hubs, cross-dock facilities, and regional fulfillment centers.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>warehouse_id</code></td><td>TEXT</td><td>PRIMARY KEY</td><td>Unique facility identifier (e.g. <code>WH-NORTH-01</code>)</td></tr>
+              <tr><td><code>warehouse_name</code></td><td>TEXT</td><td>NOT NULL</td><td>Human-readable depot name</td></tr>
+              <tr><td><code>region</code></td><td>TEXT</td><td>NOT NULL</td><td>Geographic dispatch territory (<code>north</code>, <code>south</code>, etc.)</td></tr>
+              <tr><td><code>city</code></td><td>TEXT</td><td>NOT NULL</td><td>City location</td></tr>
+              <tr><td><code>latitude</code> / <code>longitude</code></td><td>NUMERIC(9,6)</td><td>NOT NULL</td><td>GPS facility coordinates</td></tr>
+              <tr><td><code>created_at</code></td><td>TIMESTAMPTZ</td><td>DEFAULT now()</td><td>Record audit timestamp</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+    DELIVERY_PLANS {
+        text delivery_id PK
+        text shipment_id FK
+        text vehicle_id FK
+        text driver_id FK
+        text route_id
+        timestamptz planned_departure_at
+        timestamptz planned_arrival_at
+        numeric planned_distance_km
+    }
+</code></pre>
+<h3 id="table-1-warehouses">Table 1: <code>warehouses</code></h3>
+<p>Stores warehouse master data.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>warehouse_id</code>: primary key for the warehouse.</li>
+<li><code>warehouse_name</code>: human-readable name.</li>
+<li><code>region</code>: regional grouping.</li>
+<li><code>city</code>: city.</li>
+<li><code>latitude</code>, <code>longitude</code>: coordinates for maps and location analytics.</li>
+<li><code>created_at</code>: record creation time.</li>
+</ul>
+<p>This table is related to <code>shipments</code>. Each shipment leaves one warehouse.</p>
+<h3 id="table-2-vehicles">Table 2: <code>vehicles</code></h3>
+<p>Stores vehicle master data.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>vehicle_id</code>: primary key for the vehicle.</li>
+<li><code>plate_number</code>: unique number.</li>
+<li><code>vehicle_type</code>: for example, van or truck.</li>
+<li><code>capacity_total</code>: transport capacity.</li>
+<li><code>active</code>: whether the vehicle is in use.</li>
+<li><code>created_at</code>: record creation time.</li>
+</ul>
+<p>This table is related to <code>delivery_plans</code>. Each delivery plan is assigned to one vehicle.</p>
+<h3 id="table-3-drivers">Table 3: <code>drivers</code></h3>
+<p>Stores driver master data.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>driver_id</code>: primary key for the driver.</li>
+<li><code>full_name</code>: driver&#39;s name.</li>
+<li><code>phone_number</code>: contact number.</li>
+<li><code>active</code>: whether the driver is active.</li>
+<li><code>created_at</code>: record creation time.</li>
+</ul>
+<p>This table is related to <code>delivery_plans</code>. Each delivery plan is assigned to one driver.</p>
+<h3 id="table-4-customer-orders">Table 4: <code>customer_orders</code></h3>
+<p>Stores order-level source data. This is the richest source table for batch analytics.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>order_id</code>: order primary key.</li>
+<li><code>customer_id</code>: customer identifier.</li>
+<li><code>customer_region</code>: customer region.</li>
+<li><code>destination_city</code>: delivery destination city.</li>
+<li><code>destination_latitude</code>, <code>destination_longitude</code>: delivery destination coordinates.</li>
+<li><code>service_level</code>: service level such as <code>standard</code>, <code>express</code>, or <code>same_day</code>.</li>
+<li><code>priority</code>: priority such as <code>normal</code>, <code>high</code>, or <code>critical</code>.</li>
+<li><code>package_count</code>: number of packages in the order.</li>
+<li><code>order_value</code>: order monetary value.</li>
+<li><code>payment_method</code>: payment type.</li>
+<li><code>order_created_at</code>: order creation time.</li>
+<li><code>promised_delivery_at</code>: promised delivery time.</li>
+</ul>
+<p>Constraint:</p>
+<ul>
+<li><code>promised_delivery_at &gt; order_created_at</code></li>
+<li><code>package_count &gt; 0</code></li>
+<li><code>order_value &gt;= 0</code></li>
+</ul>
+<p>This table is the parent table for <code>shipments</code>.</p>
+<h3 id="table-5-shipments">Table 5: <code>shipments</code></h3>
+<p>Creates the shipment relationship between an order and a warehouse.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>shipment_id</code>: shipment primary key.</li>
+<li><code>order_id</code>: <code>customer_orders(order_id)</code> foreign key.</li>
+<li><code>warehouse_id</code>: <code>warehouses(warehouse_id)</code> foreign key.</li>
+<li><code>shipment_status</code>: shipment status.</li>
+<li><code>created_at</code>: record creation time.</li>
+</ul>
+<p>This table acts as the bridge for the order lifecycle.</p>
+<h3 id="table-6-delivery-plans">Table 6: <code>delivery_plans</code></h3>
+<p>This planning table describes how a shipment will be transported.</p>
+<p>Main fields:</p>
+<ul>
+<li><code>delivery_id</code>: delivery primary key.</li>
+<li><code>shipment_id</code>: <code>shipments(shipment_id)</code> foreign key.</li>
+<li><code>vehicle_id</code>: <code>vehicles(vehicle_id)</code> foreign key.</li>
+<li><code>driver_id</code>: <code>drivers(driver_id)</code> foreign key.</li>
+<li><code>route_id</code>: route identifier.</li>
+<li><code>planned_departure_at</code>: planned departure time.</li>
+<li><code>planned_arrival_at</code>: planned arrival time.</li>
+<li><code>planned_distance_km</code>: planned distance.</li>
+</ul>
+<p>Constraint:</p>
+<ul>
+<li><code>planned_arrival_at &gt; planned_departure_at</code></li>
+<li><code>planned_distance_km &gt;= 0</code></li>
+</ul>
+<h3 id="batch-source-seed-flow">Batch Source Seed Flow</h3>
+<pre><code>
+sequenceDiagram
+    participant U as User / make
+    participant P as Producer Container
+    participant G as Generator App
+    participant PG as postgres-source
+        <h3>2. <code>vehicles</code></h3>
+        <p>Fleet asset inventory including cargo trucks, vans, and haulers.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>vehicle_id</code></td><td>TEXT</td><td>PRIMARY KEY</td><td>Fleet tracking asset ID (e.g. <code>VEH-101</code>)</td></tr>
+              <tr><td><code>plate_number</code></td><td>TEXT</td><td>UNIQUE, NOT NULL</td><td>Registration license plate</td></tr>
+              <tr><td><code>vehicle_type</code></td><td>TEXT</td><td>NOT NULL</td><td>Asset class (<code>van</code>, <code>box_truck</code>, <code>semi</code>)</td></tr>
+              <tr><td><code>capacity_total</code></td><td>NUMERIC(12,2)</td><td>CHECK &gt; 0</td><td>Maximum volumetric/weight cargo capacity</td></tr>
+              <tr><td><code>active</code></td><td>BOOLEAN</td><td>DEFAULT true</td><td>Availability for route assignment</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+    U-&gt;&gt;P: make seed-batch-source
+    P-&gt;&gt;G: PRODUCER_MODE=batch
+    G-&gt;&gt;PG: warehouses upsert
+    G-&gt;&gt;PG: vehicles upsert
+    G-&gt;&gt;PG: drivers upsert
+    G-&gt;&gt;PG: customer_orders insert
+    G-&gt;&gt;PG: shipments insert
+    G-&gt;&gt;PG: delivery_plans insert
+</code></pre>
+<p>The generator uses <code>ON CONFLICT DO NOTHING</code>. This means reseeding with the same IDs does not duplicate existing rows.</p>
+<h3 id="inspect-commands">Inspect Commands</h3>
+<p>To list databases:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d postgres -c &quot;\l&quot;
+</code></pre>
+<p>To list <code>logistics_source</code> tables:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;\dt&quot;
+</code></pre>
+<p>To inspect a table structure:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;\d customer_orders&quot;
+</code></pre>
+<p>To check row counts:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;SELECT count(*) FROM customer_orders;&quot;
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;SELECT count(*) FROM delivery_plans;&quot;
+</code></pre>
+<p>Source data sample:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;SELECT order_id, customer_region, service_level, priority, package_count, order_value FROM customer_orders LIMIT 10;&quot;
+</code></pre>
+<p>Join sample:</p>
+<pre><code>
+docker compose exec postgres-source psql -U postgres -d logistics_source -c &quot;SELECT o.order_id, s.shipment_id, d.delivery_id, d.vehicle_id, d.driver_id FROM customer_orders o JOIN shipments s ON s.order_id = o.order_id JOIN delivery_plans d ON d.shipment_id = s.shipment_id LIMIT 10;&quot;
+</code></pre>
+<h3 id="postgresql-and-other-services">PostgreSQL and Other Services</h3>
+<pre><code>
+flowchart LR
+    generator[&quot;Generator&quot;]
+    sourceTables[&quot;PostgreSQL logistics_source&quot;]
+    nessieDb[&quot;PostgreSQL nessie_metadata&quot;]
+    airflowDb[&quot;PostgreSQL airflow_metadata&quot;]
+    nessie[&quot;Nessie&quot;]
+    airflow[&quot;Airflow&quot;]
+    spark[&quot;Spark&quot;]
+        <h3>3. <code>customer_orders</code></h3>
+        <p>Inbound customer shipping requests before allocation to transport.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>order_id</code></td><td>TEXT</td><td>PRIMARY KEY</td><td>Unique commercial order identifier</td></tr>
+              <tr><td><code>customer_id</code></td><td>TEXT</td><td>&mdash;</td><td>Customer account ID</td></tr>
+              <tr><td><code>customer_region</code></td><td>TEXT</td><td>NOT NULL</td><td>Destination delivery territory</td></tr>
+              <tr><td><code>service_level</code></td><td>TEXT</td><td>DEFAULT 'standard'</td><td>SLA level (<code>standard</code>, <code>express</code>, <code>same_day</code>)</td></tr>
+              <tr><td><code>priority</code></td><td>TEXT</td><td>DEFAULT 'normal'</td><td>Fulfillment priority (<code>low</code>, <code>normal</code>, <code>high</code>)</td></tr>
+              <tr><td><code>package_count</code></td><td>INTEGER</td><td>CHECK &gt; 0</td><td>Number of parcel units</td></tr>
+              <tr><td><code>order_value</code></td><td>NUMERIC(12,2)</td><td>CHECK &gt;= 0</td><td>Monetary shipment value</td></tr>
+              <tr><td><code>promised_delivery_at</code></td><td>TIMESTAMPTZ</td><td>NOT NULL</td><td>Agreed customer delivery SLA timestamp</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+    generator --&gt; sourceTables
+    nessie --&gt; nessieDb
+    airflow --&gt; airflowDb
+    sourceTables -. future batch source .-&gt; spark
+</code></pre>
+<h3 id="important-notes">Important Notes</h3>
+<ul>
+<li><code>postgres-source</code> contains both source data and Nessie metadata, but they are in separate databases.</li>
+<li><code>postgres-airflow</code> is used only for Airflow metadata.</li>
+<li>Source tables are not for operational serving; ClickHouse provides serving.</li>
+<li>Superset should not read PostgreSQL source tables; dashboards should use ClickHouse views.</li>
+<li>If an old volume remains, new columns in the init script may not be added automatically to existing tables. In that case, use <code>make purge</code> to reset local data.</li>
+</ul>
+        <h3>4. <code>delivery_plans</code></h3>
+        <p>Operational link binding shipments, vehicles, drivers, and planned routes.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Column</th><th>Type</th><th>Constraints</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>delivery_id</code></td><td>TEXT</td><td>PRIMARY KEY</td><td>Unique delivery plan identifier (bridges to stream events)</td></tr>
+              <tr><td><code>shipment_id</code></td><td>TEXT</td><td>FK shipments</td><td>Shipment unit reference</td></tr>
+              <tr><td><code>vehicle_id</code></td><td>TEXT</td><td>FK vehicles</td><td>Assigned vehicle</td></tr>
+              <tr><td><code>driver_id</code></td><td>TEXT</td><td>FK drivers</td><td>Assigned driver</td></tr>
+              <tr><td><code>route_id</code></td><td>TEXT</td><td>NOT NULL</td><td>Route segment identifier</td></tr>
+              <tr><td><code>planned_departure_at</code></td><td>TIMESTAMPTZ</td><td>NOT NULL</td><td>Target warehouse departure time</td></tr>
+              <tr><td><code>planned_arrival_at</code></td><td>TIMESTAMPTZ</td><td>NOT NULL</td><td>Target arrival window deadline</td></tr>
+              <tr><td><code>planned_distance_km</code></td><td>NUMERIC(8,2)</td><td>CHECK &gt; 0</td><td>Calculated road distance</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="source-commands">Seeding and Inspection Commands</h2>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <span>PowerShell &mdash; PostgreSQL Seeding and Querying</span>
+            <button class="terminal-copy-btn" type="button" data-copy="make seed-batch-source&#10;docker compose exec postgres-source psql -U postgres -d logistics_source -c '\dt'&#10;docker compose exec postgres-source psql -U postgres -d logistics_source -c 'SELECT count(*) FROM customer_orders;'">Copy All</button>
+          </div>
+          <pre class="terminal-body"><code># Seed PostgreSQL operational source tables with synthetic business records
+make seed-batch-source
+
+# Inspect created tables in the source database container
+docker compose exec postgres-source psql -U postgres -d logistics_source -c "\dt"
+
+# Count seeded customer orders
+docker compose exec postgres-source psql -U postgres -d logistics_source -c "SELECT count(*) FROM customer_orders;"</code></pre>
+        </div>
+      </article>
+    </main>
+  </body>
+
+    <aside class="toc-sidebar">
+      <div class="toc-title">On this page</div>
+      <ul class="toc-nav">
+        <li><a href="#service-separation">PostgreSQL Services</a></li>
+        <li><a href="#erd-diagram">ERD Diagram</a></li>
+        <li><a href="#table-dictionaries">Table Dictionaries</a></li>
+        <li><a href="#source-commands">Seeding &amp; Inspection</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>

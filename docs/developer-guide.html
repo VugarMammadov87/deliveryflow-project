@@ -1,0 +1,600 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Developer Guide | DeliveryFlow Docs</title>
+  <meta name="description" content="Step-by-step developer onboarding, lifecycle management, categorized command hub, and safety guidelines for DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Developer Guide</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html" class="active">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>Developer Onboarding &amp; Operations Guide</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          This guide provides a comprehensive walkthrough for setting up, running, testing, and troubleshooting the DeliveryFlow data platform on a local workstation.
+        </p>
+
+        <h2 id="prerequisites">Prerequisites &amp; Host Configuration</h2>
+        <p>
+          DeliveryFlow coordinates 12 distributed data infrastructure components within Docker. Verify that your development machine satisfies the following hardware and software requirements:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Requirement</th>
+                <th>Minimum Specification</th>
+                <th>Recommended Specification</th>
+                <th>Verification Command</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Operating System</strong></td>
+                <td>Windows 10/11 (WSL2), macOS 13+, or Ubuntu 22.04+</td>
+                <td>Linux x86_64 or Windows 11 with WSL2 Ubuntu</td>
+                <td><code>uname -a</code> or <code>wsl --status</code></td>
+              </tr>
+              <tr>
+                <td><strong>Memory (RAM)</strong></td>
+                <td>8 GB dedicated to Docker</td>
+                <td>12 GB &ndash; 16 GB dedicated to Docker</td>
+                <td>Check Docker Desktop Settings &rarr; Resources</td>
+              </tr>
+              <tr>
+                <td><strong>Docker Engine</strong></td>
+                <td>Docker Engine 24.0+ &amp; Compose v2.20+</td>
+                <td>Docker Engine 27.0+ &amp; Compose v2.29+</td>
+                <td><code>docker compose version</code></td>
+              </tr>
+              <tr>
+                <td><strong>GNU Make</strong></td>
+                <td>GNU Make 4.0+ (or run commands via bash/pwsh)</td>
+                <td>GNU Make 4.3+</td>
+                <td><code>make --version</code></td>
+              </tr>
+              <tr>
+                <td><strong>Python (Host)</strong></td>
+                <td>Python 3.10+ (for local pytest and scripting)</td>
+                <td>Python 3.11+ with virtual environment</td>
+                <td><code>python --version</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--warning">
+          <div class="callout__title">Host Port Availability</div>
+          <p>
+            Verify that the following local ports are not bound by existing host services:
+            <code>5433</code> (Postgres Source), <code>5434</code> (Postgres Airflow), <code>8080</code> (Airflow Web), 
+            <code>8081</code> (Flink JobManager), <code>8088</code> (Superset UI), <code>8123</code> (ClickHouse HTTP), 
+            <code>9000</code> (ClickHouse Native), <code>9001</code> (MinIO S3 API), <code>9002</code> (MinIO Console), 
+            <code>9092</code> (Kafka Broker), and <code>19120</code> (Nessie Catalog API).
+          </p>
+        </div>
+
+        <h2 id="step-by-step-setup">Step-by-Step Platform Setup</h2>
+
+        <div class="flow-grid" style="margin-bottom: 2rem;">
+          <div class="flow-step">
+            <div class="flow-step__title">1. Configure</div>
+            <div class="flow-step__tech">.env Setup</div>
+            <div class="flow-step__desc">Copy template and verify default secrets</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">2. Build</div>
+            <div class="flow-step__tech">Docker Images</div>
+            <div class="flow-step__desc">Build producer &amp; tooling containers</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">3. Start</div>
+            <div class="flow-step__tech">make up</div>
+            <div class="flow-step__desc">Initialize 12 platform containers</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">4. Verify</div>
+            <div class="flow-step__tech">make health</div>
+            <div class="flow-step__desc">Validate cluster connectivity</div>
+          </div>
+        </div>
+
+        <h3>Step 1: Environment File Initialization</h3>
+        <p>
+          Clone the repository and create your local <code>.env</code> file from the provided template:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Bash / PowerShell</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># On Linux / macOS / Git Bash
+cp .env.example .env
+
+# On Windows PowerShell
+Copy-Item .env.example .env</code></pre>
+        </div>
+
+        <p>The table below summarizes the key environment variables configured in <code>.env</code>:</p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Variable</th>
+                <th>Default Value</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>KAFKA_BOOTSTRAP_SERVERS</code></td>
+                <td><code>kafka:9092</code></td>
+                <td>Internal Docker network address for Kafka KRaft broker</td>
+              </tr>
+              <tr>
+                <td><code>CLICKHOUSE_HOST</code></td>
+                <td><code>clickhouse</code></td>
+                <td>Host domain name for ClickHouse analytics database</td>
+              </tr>
+              <tr>
+                <td><code>MINIO_ROOT_USER</code></td>
+                <td><code>admin</code></td>
+                <td>S3 object store root access key</td>
+              </tr>
+              <tr>
+                <td><code>NESSIE_URI</code></td>
+                <td><code>http://nessie:19120/api/v1</code></td>
+                <td>REST API endpoint for Apache Iceberg metadata catalog</td>
+              </tr>
+              <tr>
+                <td><code>POSTGRES_SOURCE_PORT</code></td>
+                <td><code>5433</code></td>
+                <td>Exposed host port for transactional source database</td>
+              </tr>
+              <tr>
+                <td><code>POSTGRES_AIRFLOW_PORT</code></td>
+                <td><code>5434</code></td>
+                <td>Exposed host port for Airflow orchestration metadata</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Step 2: Build Container Images</h3>
+        <p>
+          In accordance with <strong>ADR-011</strong>, DeliveryFlow isolates runtime dependencies into two purpose-built Docker images:
+        </p>
+        <ul>
+          <li><strong><code>deliveryflow-producer:latest</code></strong>: Lightweight image containing Python and <code>kafka-python</code> for synthetic event generation.</li>
+          <li><strong><code>deliveryflow-tools:latest</code></strong>: Comprehensive platform tooling image containing PyIceberg, ClickHouse client, PySpark, psycopg2, and health check scripts.</li>
+        </ul>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Build Images</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># Build both container images
+make build
+
+# Or build individual images directly
+make build-producer
+make build-tools</code></pre>
+        </div>
+
+        <h3>Step 3: Start Platform Infrastructure</h3>
+        <p>
+          Launch the distributed stack in detached mode using Docker Compose:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Start Services</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code>make up</code></pre>
+        </div>
+
+        <h3>Step 4: Cluster Health Verification</h3>
+        <p>
+          Execute the automated multi-service health checker to verify that Kafka, ClickHouse, MinIO, Nessie, Spark, Airflow, Superset, and PostgreSQL instances are responsive and ready:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Health Check</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code>make health</code></pre>
+        </div>
+
+        <h2 id="end-to-end-demos">Running End-to-End Demonstrations</h2>
+
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Demo 1: Delivery Streaming</div>
+            <h3 class="service-card__title">Order Lifecycle Stream</h3>
+            <p class="service-card__desc">
+              Produces 30 realistic delivery event lifecycles (created &rarr; assigned &rarr; in_transit &rarr; delivered) into Kafka, processed by Flink DataStream and written into ClickHouse.
+            </p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Delivery Demo</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code>make stream-demo</code></pre>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--storage">Demo 2: Fleet Telemetry</div>
+            <h3 class="service-card__title">Vehicle Telemetry Stream</h3>
+            <p class="service-card__desc">
+              Generates 120 sensor readings across 10 delivery vans. Flink SQL aggregates 1-minute tumbling windows and identifies high engine temperature events into ClickHouse.
+            </p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Fleet Demo</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code>make fleet-demo</code></pre>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--compute">Demo 3: Lakehouse Batch</div>
+            <h3 class="service-card__title">Airflow &amp; Spark KPI ETL</h3>
+            <p class="service-card__desc">
+              Triggers the Airflow DAG or runs the PySpark batch job directly to read ClickHouse events and PostgreSQL dimensions, computing daily KPIs into Apache Iceberg.
+            </p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Batch Demo</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Run Spark batch job directly
+make run-batch-kpi
+
+# Or trigger via Airflow DAG
+make dag-trigger</code></pre>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__badge service-card__badge--bi">Demo 4: Superset BI-as-Code</div>
+            <h3 class="service-card__title">Import Dashboards</h3>
+            <p class="service-card__desc">
+              Synchronizes 5 production operational charts and the executive logistics dashboard into Superset via REST API using declarative YAML definitions.
+            </p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">BI Sync</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code>make superset-import</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <h2 id="command-reference">Categorized Makefile Command Reference</h2>
+        <p>
+          The platform Makefile encapsulates complex Docker Compose and container execution commands into memorable, consistent targets:
+        </p>
+
+        <h3>1. Infrastructure &amp; Lifecycle</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+                <th>Side Effects</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>make up</code></td>
+                <td>Starts all infrastructure containers in background mode</td>
+                <td>Spins up 12 Docker containers</td>
+              </tr>
+              <tr>
+                <td><code>make down</code></td>
+                <td>Stops all active platform containers</td>
+                <td>Preserves all database and object volumes</td>
+              </tr>
+              <tr>
+                <td><code>make build</code></td>
+                <td>Builds both producer and platform tooling images</td>
+                <td>Updates local Docker image cache</td>
+              </tr>
+              <tr>
+                <td><code>make restart</code></td>
+                <td>Executes <code>make down &amp;&amp; make up</code></td>
+                <td>Quick service reboot without data loss</td>
+              </tr>
+              <tr>
+                <td><code>make logs</code></td>
+                <td>Streams unified Docker compose log output</td>
+                <td>Attach to terminal with Ctrl+C to exit</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>2. Streaming &amp; Event Ingestion</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+                <th>Configuration Parameters</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>make stream-demo</code></td>
+                <td>Sends 30 delivery lifecycle events into Kafka</td>
+                <td><code>TOPIC=delivery-events EVENTS=30</code></td>
+              </tr>
+              <tr>
+                <td><code>make fleet-demo</code></td>
+                <td>Sends 120 vehicle telemetry events into Kafka</td>
+                <td><code>TOPIC=vehicle-telemetry-events EVENTS=120</code></td>
+              </tr>
+              <tr>
+                <td><code>make stream-continuous</code></td>
+                <td>Generates continuous event flow at 5 events/sec</td>
+                <td><code>EVENTS=0 RATE=5</code> (Ctrl+C to stop)</td>
+              </tr>
+              <tr>
+                <td><code>make flink-submit</code></td>
+                <td>Compiles and submits Java Flink jobs to cluster</td>
+                <td>Deploys DataStream and SQL streaming jobs</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>3. Batch, Lakehouse &amp; BI</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+                <th>Execution Target</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>make run-batch-kpi</code></td>
+                <td>Executes Spark daily KPI aggregation job</td>
+                <td>Submits PySpark job to <code>spark-master</code></td>
+              </tr>
+              <tr>
+                <td><code>make dag-trigger</code></td>
+                <td>Triggers <code>delivery_daily_kpi</code> DAG in Airflow</td>
+                <td>Airflow scheduler container</td>
+              </tr>
+              <tr>
+                <td><code>make superset-import</code></td>
+                <td>Imports dashboards, charts, and database connection</td>
+                <td>Superset REST API at <code>localhost:8088</code></td>
+              </tr>
+              <tr>
+                <td><code>make seed-postgres</code></td>
+                <td>Re-seeds dimensional tables in PostgreSQL source</td>
+                <td>Runs <code>003_create_source_tables.sh</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>4. Verification &amp; Testing</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+                <th>Expected Outcome</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>make health</code></td>
+                <td>Runs comprehensive health check across 8 endpoints</td>
+                <td>Returns <code>ALL SERVICES HEALTHY</code></td>
+              </tr>
+              <tr>
+                <td><code>make test</code></td>
+                <td>Executes Python unit tests via pytest on host/tools</td>
+                <td>Validates contracts, configs, and rate limiters</td>
+              </tr>
+              <tr>
+                <td><code>make e2e-test</code></td>
+                <td>Runs end-to-end smoke test verifying pipeline flow</td>
+                <td>Asserts row arrivals in ClickHouse and Iceberg</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="teardown-and-safety">Teardown Operations &amp; Data Safety</h2>
+
+        <div class="callout callout--danger">
+          <div class="callout__title">&#9888; CRITICAL SAFETY: make clean vs. make purge</div>
+          <p>
+            DeliveryFlow maintains a strict operational distinction between routine teardown and factory reset. Always understand the difference before executing maintenance commands:
+          </p>
+          <div class="table-wrapper" style="margin-top: 1rem;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Command</th>
+                  <th>Action Taken</th>
+                  <th>Data Volume Impact</th>
+                  <th>When to Use</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong><code>make clean</code></strong></td>
+                  <td>Stops and removes containers and network</td>
+                  <td><strong>PRESERVED</strong> (Named volumes remain untouched)</td>
+                  <td>End of workday, rebooting machine, or updating code.</td>
+                </tr>
+                <tr>
+                  <td><strong><code>make purge</code></strong></td>
+                  <td>Stops containers, deletes networks, and <strong>deletes named volumes</strong></td>
+                  <td><strong>DESTROYED</strong> (All tables, topics, Iceberg data, and MinIO objects are deleted)</td>
+                  <td>Corrupted database state, schema redesign, or complete factory reset.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Safe Teardown</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># Safe Teardown: preserves all data in Postgres, ClickHouse, MinIO, and Nessie
+make clean
+
+# Destructive Factory Reset: completely wipes all state
+make purge</code></pre>
+        </div>
+
+        <h2 id="local-testing">Local Development without Docker</h2>
+        <p>
+          You can test event contracts, platform configuration loaders, and synthetic generator rate logic on your host machine without starting Docker containers:
+        </p>
+
+        <div class="terminal-block">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot terminal-dot--red"></span>
+              <span class="terminal-dot terminal-dot--yellow"></span>
+              <span class="terminal-dot terminal-dot--green"></span>
+            </div>
+            <span class="terminal-title">Host Testing</span>
+            <button class="copy-button" type="button">Copy</button>
+          </div>
+          <pre><code># Create and activate virtual environment
+python -m venv .venv
+source .venv/bin/activate  # On Linux / macOS
+# .venv\Scripts\Activate.ps1 # On Windows PowerShell
+
+# Install test dependencies
+pip install pytest jsonschema pyyaml pydantic
+
+# Run unit tests
+export PYTHONPATH="src"    # On Linux / macOS
+# $env:PYTHONPATH="src"     # On Windows PowerShell
+pytest tests/ -v</code></pre>
+        </div>
+      </article>
+
+      <div class="page-toc">
+        <div class="page-toc__title">On this page</div>
+        <ul class="page-toc__list">
+          <li><a href="#prerequisites">Prerequisites</a></li>
+          <li><a href="#step-by-step-setup">Step-by-Step Setup</a></li>
+          <li><a href="#end-to-end-demos">Running Demos</a></li>
+          <li><a href="#command-reference">Command Reference</a></li>
+          <li><a href="#teardown-and-safety">Teardown &amp; Safety</a></li>
+          <li><a href="#local-testing">Local Testing</a></li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+

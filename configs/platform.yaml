@@ -1,4 +1,8 @@
+# DeliveryFlow Central Platform Service Connections and Endpoints
+# Defines hostnames, internal/external ports, and environment variable references
+# shared across Python, Java, and shell runtimes.
 platform:
+  # Distributed event streaming transport layer
   kafka:
     internal_bootstrap_servers: kafka:9092
     external_bootstrap_servers: localhost:9092
@@ -6,6 +10,7 @@ platform:
       delivery_events: delivery-events
       vehicle_telemetry_events: vehicle-telemetry-events
 
+  # Operational and BI analytical serving database
   clickhouse:
     http_url: http://clickhouse:8123
     host: clickhouse
@@ -17,6 +22,7 @@ platform:
     username_env: CLICKHOUSE_USER
     password_env: CLICKHOUSE_PASSWORD
 
+  # Relational operational and metadata storage instances
   postgres:
     source:
       host: postgres-source
@@ -37,6 +43,7 @@ platform:
       username_env: NESSIE_DB_USER
       password_env: NESSIE_DB_PASSWORD
 
+  # S3-compatible object storage warehouse for Iceberg data and metadata files
   object_storage:
     endpoint: http://minio:9000
     bucket_env: S3_BUCKET
@@ -45,22 +52,27 @@ platform:
     secret_key_env: MINIO_ROOT_PASSWORD
     warehouse_env: ICEBERG_WAREHOUSE
 
+  # Transactional Iceberg catalog service
   nessie:
     uri: http://nessie:19120/api/v2
     ref_env: NESSIE_REF
 
+  # Business intelligence and dashboard serving layer
   superset:
     base_url: http://superset:8088
     asset_file: /app/configs/superset/deliveryflow_bi.yaml
     username_env: SUPERSET_ADMIN_USER
     password_env: SUPERSET_ADMIN_PASSWORD
 
+  # Distributed batch computation cluster
   spark:
     master_url: spark://spark-master:7077
     ui_url: http://spark-master:8080
 
+  # Real-time stateful stream processing cluster
   flink:
     rest_url: http://flink-jobmanager:8081
 
+  # Batch workflow scheduling and orchestration engine
   airflow:
     web_url: http://airflow-webserver:8080

@@ -1,3 +1,5 @@
+# Vehicle Telemetry Dataset Specification
+# Defines source topic, contract schema, watermark strategy, ClickHouse targets, and SLA metrics.
 dataset_id: fleet.vehicle_telemetry
 application: fleet
 domain: fleet-operations

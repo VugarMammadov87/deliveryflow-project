@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Troubleshooting Guide | DeliveryFlow Docs</title>
+  <meta name="description" content="Problem-oriented diagnosis guide for DeliveryFlow: Kafka, Flink, ClickHouse, Spark, Iceberg, Airflow, and Superset.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Troubleshooting</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html" class="active">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>Platform Troubleshooting Guide</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          Structured operational diagnosis workflows for common failure modes across ingestion, stream processing, analytical serving, lakehouse batch jobs, and BI dashboards.
+        </p>
+
+        <div class="callout callout--info">
+          <div class="callout__title">Universal Diagnostic Command</div>
+          <p>
+            Whenever you encounter anomalous behavior, run the automated multi-service health checker first. It probes all 8 platform endpoints and prints an immediate status summary:
+          </p>
+          <div class="terminal-block" style="margin-top: 0.5rem;">
+            <div class="terminal-header">
+              <span class="terminal-title">Health Check</span>
+              <button class="copy-button" type="button">Copy</button>
+            </div>
+            <pre><code>make health</code></pre>
+          </div>
+        </div>
+
+        <h2 id="triage-workflow">Diagnostic Triage Workflow</h2>
+        <p>
+          When triaging pipeline issues, isolate failures along the data path from ingestion to visualization:
+        </p>
+
+        <div class="flow-grid" style="margin-bottom: 2.5rem;">
+          <div class="flow-step">
+            <div class="flow-step__title">1. Ingestion</div>
+            <div class="flow-step__tech">Kafka Topics</div>
+            <div class="flow-step__desc">Verify topic existence and event arrival</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">2. Processing</div>
+            <div class="flow-step__tech">Flink Jobs</div>
+            <div class="flow-step__desc">Check JobManager UI for checkpoints &amp; exceptions</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">3. Serving</div>
+            <div class="flow-step__tech">ClickHouse Rows</div>
+            <div class="flow-step__desc">Query row counts and table engine states</div>
+          </div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-step">
+            <div class="flow-step__title">4. BI &amp; Batch</div>
+            <div class="flow-step__tech">Superset / Spark</div>
+            <div class="flow-step__desc">Verify catalog metadata and query views</div>
+          </div>
+        </div>
+
+        <h2 id="issue-kafka-producer">1. Kafka Receives No Events / Producer Fails</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">Ingestion Issue</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Producer completes but Kafka topic remains empty</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> Events are not appearing in the target Kafka topic (<code>delivery-events</code> or <code>vehicle-telemetry-events</code>).</p>
+            
+            <p><strong>Symptoms:</strong></p>
+            <ul>
+              <li>Kafka consumer offsets remain at 0.</li>
+              <li>ClickHouse tables receive zero new rows after running demo commands.</li>
+              <li>Flink stream processing metrics show 0 records read.</li>
+            </ul>
+
+            <p><strong>Possible Causes:</strong></p>
+            <ol>
+              <li>The synthetic producer container exited prematurely due to missing environment variables or DNS resolution failure for <code>kafka:9092</code>.</li>
+              <li>Kafka KRaft controller is still initializing cluster metadata and not accepting client connections.</li>
+              <li>Topic auto-creation is disabled and the topic was not created prior to publishing.</li>
+            </ol>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Check Producer Logs &amp; Topics</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Check producer container logs
+docker compose logs producer
+
+# Inspect Kafka topic list directly inside the broker
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 \
+  --list
+
+# Check message counts inside delivery-events
+docker compose exec kafka /opt/kafka/bin/kafka-run-class.sh \
+  kafka.tools.GetOffsetShell \
+  --bootstrap-server localhost:9092 \
+  --topic delivery-events</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Ensure Kafka broker is healthy: <code>docker compose ps kafka</code>.</li>
+              <li>If Kafka is healthy, trigger a manual producer run: <code>make stream-demo</code>.</li>
+              <li>Verify that <code>.env</code> defines <code>KAFKA_BOOTSTRAP_SERVERS=kafka:9092</code> for in-Docker networking.</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> Producer prints <code>[INFO] Published 30 delivery events successfully</code> and Kafka offset count increments.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-flink-job">2. Flink Streaming Job Fails or Stalls</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">Stream Processing</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Flink DataStream or SQL Job in FAILED or RESTARTING State</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> Flink streaming jobs fail to deploy, terminate immediately, or repeatedly fail checkpoints.</p>
+
+            <p><strong>Symptoms:</strong></p>
+            <ul>
+              <li>Flink Web UI at <code>http://localhost:8081</code> displays job status as <code>FAILED</code> or <code>RESTARTING</code>.</li>
+              <li>ClickHouse tables are not updated despite messages existing in Kafka.</li>
+              <li>TaskManager log contains <code>ConnectException: Connection refused to clickhouse:8123</code> or <code>KafkaException</code>.</li>
+            </ul>
+
+            <p><strong>Possible Causes:</strong></p>
+            <ol>
+              <li>Flink job started before ClickHouse completed schema initialization.</li>
+              <li>Event schema mismatch: JSON payload in Kafka does not match contract parsed by <code>DeliveryEventParser.java</code>.</li>
+              <li>Flink TaskManager ran out of memory under heavy load or large tumbling window state.</li>
+            </ol>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Check Flink Logs</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Check JobManager container logs
+docker compose logs flink-jobmanager --tail=100
+
+# Check TaskManager container logs
+docker compose logs flink-taskmanager --tail=100</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Verify ClickHouse is ready by running <code>curl http://localhost:8123</code>.</li>
+              <li>Re-submit the Flink jobs to the cluster: <code>make flink-submit</code>.</li>
+              <li>If schema validation failed, verify event structure with <code>$env:PYTHONPATH="src"; pytest tests/test_event_contract.py</code>.</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> Flink Web UI displays <code>DeliveryStreamingJob</code> and <code>VehicleTelemetrySqlJob</code> with green <code>RUNNING</code> status.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-clickhouse-empty">3. ClickHouse Serving Tables Stay Empty</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">Serving Layer</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Queries return 0 rows despite active event generation</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> ClickHouse analytical queries return <code>0 rows in set</code>.</p>
+
+            <p><strong>Symptoms:</strong></p>
+            <ul>
+              <li><code>SELECT count() FROM delivery.delivery_events</code> returns <code>0</code>.</li>
+              <li>Superset charts show empty graphs with "No data returned".</li>
+            </ul>
+
+            <p><strong>Possible Causes:</strong></p>
+            <ol>
+              <li>ClickHouse HTTP sink in Flink has not flushed the current batch buffer.</li>
+              <li>Tables were created in the wrong database schema (e.g. <code>default</code> instead of <code>delivery</code>).</li>
+              <li>Stale volume holds older schema lacking required tables.</li>
+            </ol>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Inspect ClickHouse Tables</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Query ClickHouse directly via HTTP API
+curl -s "http://localhost:8123/?query=SELECT%20database,%20name,%20total_rows%20FROM%20system.tables%20WHERE%20database%20IN%20('delivery','fleet')"
+
+# Check ClickHouse server error log
+docker compose logs clickhouse --tail=50</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Wait 3-5 seconds for Flink HTTP sink batch timeout to flush pending events.</li>
+              <li>Verify database schemas exist: <code>docker compose exec clickhouse clickhouse-client --query "SHOW DATABASES"</code>.</li>
+              <li>If tables are missing, re-run schema init: <code>docker compose exec clickhouse clickhouse-client --multiquery &lt; services/clickhouse/init/001_delivery_schema.sql</code>.</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> ClickHouse returns row count matching produced event quantity.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-spark-batch">4. Spark Batch Daily KPI Job Fails</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--compute">Batch &amp; Lakehouse</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Spark Job Fails with Readiness Check or Catalog Error</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> <code>make run-batch-kpi</code> or Airflow task <code>run_spark_daily_kpi</code> fails with an exception.</p>
+
+            <p><strong>Symptoms:</strong></p>
+            <ul>
+              <li>Airflow DAG execution status turns red (FAILED).</li>
+              <li>PySpark output displays <code>RuntimeError: Source ClickHouse table has 0 records. Readiness check failed.</code></li>
+              <li>Iceberg commit fails with <code>NessieNotFoundException: Branch main not found</code>.</li>
+            </ul>
+
+            <p><strong>Possible Causes:</strong></p>
+            <ol>
+              <li>The batch job was executed against a fresh platform where no streaming events have been produced yet.</li>
+              <li>MinIO S3 storage bucket <code>lakehouse</code> was not created or credentials do not match <code>spark-defaults.conf</code>.</li>
+              <li>Project Nessie REST catalog was not accessible at <code>http://nessie:19120/api/v1</code>.</li>
+            </ol>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Validate Batch Prerequisites</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Verify ClickHouse source has events
+curl -s "http://localhost:8123/?query=SELECT%20count()%20FROM%20delivery.delivery_events"
+
+# Verify MinIO bucket existence
+curl -s http://localhost:9001/minio/health/live
+
+# Verify Nessie catalog status
+curl -s http://localhost:19120/api/v1/config</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Generate source streaming events first: <code>make stream-demo</code>.</li>
+              <li>Wait 5 seconds for events to land in ClickHouse.</li>
+              <li>Re-run the Spark batch job: <code>make run-batch-kpi</code>.</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> Spark computes dimensional joins and writes committed Iceberg snapshot to <code>nessie.delivery.delivery_daily_kpi</code>.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-superset-charts">5. Superset Charts Display Errors</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--bi">BI &amp; Visualization</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Chart shows "Error loading data" or Schema Mismatch</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> Superset dashboard charts display red error banners or fail to load query results.</p>
+
+            <p><strong>Symptoms:</strong></p>
+            <ul>
+              <li>Dashboard cards show <code>Table 'delivery.v_delivery_realtime_overview' does not exist</code>.</li>
+              <li>ClickHouse database connection test in Superset fails.</li>
+              <li>Cached chart errors persist after data is populated.</li>
+            </ul>
+
+            <p><strong>Possible Causes:</strong></p>
+            <ol>
+              <li>Superset database connection was not imported or points to incorrect credentials.</li>
+              <li>Browser cache is serving stale metadata from a prior session.</li>
+              <li>ClickHouse analytical views were not created in the database.</li>
+            </ol>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Check BI Assets</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># Re-run automated asset importer
+make superset-import
+
+# Verify views in ClickHouse
+curl -s "http://localhost:8123/?query=SHOW%20TABLES%20FROM%20delivery%20LIKE%20'v_%25'"</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Run <code>make superset-import</code> to ensure database connection and 5 chart assets are synchronized.</li>
+              <li>Perform a hard refresh in your web browser: <strong>Ctrl + F5</strong> (Windows) or <strong>Cmd + Shift + R</strong> (macOS).</li>
+              <li>In Superset, click <em>Settings &rarr; Clear Cache</em>.</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> All 5 charts render operational KPIs, time-series lines, and donut distributions cleanly.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-port-conflict">6. Port Conflict on Host Machine</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">Host Environment</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Docker fails to bind local port (Port Already Allocated)</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> <code>make up</code> fails with error: <code>Bind for 0.0.0.0:5433 failed: port is already allocated</code>.</p>
+
+            <p><strong>Symptoms:</strong> Docker Compose exits with code 1 during container startup.</p>
+
+            <p><strong>Possible Causes:</strong> A native service running on the host machine (e.g., local PostgreSQL on 5432/5433, local Kafka on 9092, or local web server on 8080) is occupying the port.</p>
+
+            <p><strong>How to Check:</strong></p>
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Find Conflicting Port</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># On Windows PowerShell (e.g. check port 5433)
+Get-NetTCPConnection -LocalPort 5433 | Format-Table -Property LocalAddress, LocalPort, OwningProcess
+
+# On Linux / macOS
+lsof -i :5433</code></pre>
+            </div>
+
+            <p><strong>How to Fix:</strong></p>
+            <ol>
+              <li>Stop the conflicting host service via Services control panel or process manager.</li>
+              <li>Alternatively, change the exposed host port in your <code>.env</code> file (e.g. set <code>POSTGRES_SOURCE_PORT=5435</code>).</li>
+            </ol>
+
+            <p><strong>Expected Result:</strong> Docker Compose successfully binds all host ports during <code>make up</code>.</p>
+          </div>
+        </div>
+
+        <h2 id="issue-stale-volumes">7. Corrupted State or Schema Drift</h2>
+
+        <div class="troubleshooting-card">
+          <div class="troubleshooting-card__header">
+            <span class="service-card__badge service-card__badge--storage">State Reset</span>
+            <h3 style="margin: 0.5rem 0 0 0;">Resetting Stale Named Volumes (make purge)</h3>
+          </div>
+          <div class="troubleshooting-card__body">
+            <p><strong>Problem:</strong> Underlying database schemas or catalog metadata have drifted after updating repository files, and new migrations conflict with old volume data.</p>
+
+            <p><strong>How to Fix (Factory Reset):</strong></p>
+            <div class="callout callout--danger">
+              <div class="callout__title">Destructive Action Warning</div>
+              <p>This command deletes all persistent Docker volumes, wiping all data in PostgreSQL, ClickHouse, MinIO, and Nessie.</p>
+            </div>
+
+            <div class="terminal-block">
+              <div class="terminal-header">
+                <span class="terminal-title">Factory Reset</span>
+                <button class="copy-button" type="button">Copy</button>
+              </div>
+              <pre><code># 1. Stop containers and destroy named volumes
+make purge
+
+# 2. Re-launch platform with fresh initialization schemas
+make up
+
+# 3. Verify health
+make health
+
+# 4. Re-seed dimensional data and run stream demo
+make seed-postgres
+make stream-demo</code></pre>
+            </div>
+
+            <p><strong>Expected Result:</strong> All 12 services restart with pristine schemas matching repository source files.</p>
+          </div>
+        </div>
+      </article>
+
+      <div class="page-toc">
+        <div class="page-toc__title">On this page</div>
+        <ul class="page-toc__list">
+          <li><a href="#triage-workflow">Triage Workflow</a></li>
+          <li><a href="#issue-kafka-producer">1. Kafka / Producer</a></li>
+          <li><a href="#issue-flink-job">2. Flink Streaming</a></li>
+          <li><a href="#issue-clickhouse-empty">3. ClickHouse Serving</a></li>
+          <li><a href="#issue-spark-batch">4. Spark Batch / KPI</a></li>
+          <li><a href="#issue-superset-charts">5. Superset BI</a></li>
+          <li><a href="#issue-port-conflict">6. Port Conflict</a></li>
+          <li><a href="#issue-stale-volumes">7. Volume Reset</a></li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+

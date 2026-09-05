@@ -23,9 +23,9 @@ The first implementation of this decision is `VehicleTelemetrySqlJob`, a Java Fl
 
 This decision prepares the project for 300-500 table growth without requiring one Python script, one Spark job, one Flink job, one Airflow DAG, and one Superset file per table.
 
-Bu sənəd DeliveryFlow layihəsində qəbul edilmiş əsas arxitektura qərarlarını izah edir. Qərarların məqsədi lokal lab üçün sadə, işlək və data engineering prinsiplərinə uyğun platforma qurmaqdır.
+This document explains the main architecture decisions made for DeliveryFlow. The goal is to build a platform that is simple, functional, and aligned with data engineering principles for the local lab.
 
-## Yüksək Səviyyəli Arxitektura
+## High-Level Architecture
 
 ```mermaid
 flowchart TB
@@ -67,7 +67,7 @@ flowchart TB
 
 ## Pinned Compatibility Set
 
-Bu versiyalar lokal platformanın bir-biri ilə uyğun işləməsi üçün seçilib:
+These versions were selected for compatibility within the local platform:
 
 - Kafka: `apache/kafka:3.9.2`
 - Flink: `flink:1.20.3-scala_2.12-java11`
@@ -86,54 +86,54 @@ Bu versiyalar lokal platformanın bir-biri ilə uyğun işləməsi üçün seçi
 
 ## ADR-001: Kafka KRaft Broker
 
-Kafka bir KRaft broker kimi işləyir. Lokal lab üçün ZooKeeper əlavə edilməyib.
+Kafka runs as a single KRaft broker. ZooKeeper is not included in the local lab.
 
-Səbəb:
+Rationale:
 
-- Daha az servis.
-- Daha sadə local bootstrap.
-- Müasir Kafka deployment modelinə daha yaxın setup.
+- Fewer services.
+- Simpler local bootstrap.
+- A setup closer to the modern Kafka deployment model.
 
-Topic strategiyası:
+Topic strategy:
 
 ```text
 delivery-events
 ```
 
-Bu topic delivery lifecycle event-lərini daşıyır. Event key `delivery_id`-dir.
+This topic carries delivery lifecycle events. The event key is `delivery_id`.
 
 ## ADR-002: Flink Stream Processing
 
-Flink real-time event processing üçün seçilib.
+Flink was selected for real-time event processing.
 
-Səbəb:
+Rationale:
 
-- Kafka source ilə təbii inteqrasiya.
-- Event-time və watermark support-u.
+- Natural integration with Kafka as a source.
+- Event-time and watermark support.
 - Keyed stream processing.
 - Checkpointing support.
-- Real-time ClickHouse sink üçün uyğun model.
+- A suitable model for a real-time ClickHouse sink.
 
-Flink bu layihədə aşağıdakı işi görür:
+In this project, Flink:
 
-- Kafka event-lərini consume edir.
-- JSON parse edir.
-- `schema_version = 1` yoxlayır.
-- Delivery state və vehicle state hazırlayır.
-- ClickHouse-a yazır.
+- Consumes Kafka events.
+- Parses JSON.
+- Validates `schema_version = 1`.
+- Builds delivery and vehicle state.
+- Writes to ClickHouse.
 
 ## ADR-003: ClickHouse Serving Layer
 
-ClickHouse operational və BI serving qatıdır.
+ClickHouse is the operational and BI serving layer.
 
-ClickHouse cədvəlləri:
+ClickHouse tables:
 
 - `delivery.delivery_events`: immutable event history.
 - `delivery.delivery_current_state`: latest delivery state.
 - `delivery.vehicle_current_state`: latest vehicle state.
 - `delivery.daily_delivery_kpi`: batch KPI serving table.
 
-ClickHouse view-ları:
+ClickHouse views:
 
 - `v_delivery_status_overview`
 - `v_delay_by_region`
@@ -157,14 +157,14 @@ flowchart LR
 
 ## ADR-004: Spark Batch Processing
 
-Spark daily KPI və lakehouse write üçün seçilib.
+Spark was selected for daily KPI and lakehouse writes.
 
-Səbəb:
+Rationale:
 
-- Batch aggregation üçün geniş ecosystem.
+- A broad ecosystem for batch aggregation.
 - Iceberg integration.
-- JDBC ilə ClickHouse-dan oxuma imkanı.
-- Airflow-dan `spark-submit` ilə idarə edilə bilməsi.
+- The ability to read from ClickHouse over JDBC.
+- The ability to be controlled from Airflow with `spark-submit`.
 
 Spark job:
 
@@ -180,7 +180,7 @@ Spark output:
 
 ## ADR-005: Iceberg + Nessie + MinIO Lakehouse
 
-Lakehouse qatı üç hissədən ibarətdir:
+The lakehouse layer has three parts:
 
 - Iceberg table format.
 - Nessie catalog.
@@ -194,109 +194,109 @@ flowchart LR
     nessie --> pg["PostgreSQL nessie_metadata"]
 ```
 
-Səbəb:
+Rationale:
 
-- Iceberg analytical table format verir.
-- Nessie catalog və versioned metadata idarə edir.
-- MinIO lokal object storage kimi S3-compatible davranır.
+- Iceberg provides the analytical table format.
+- Nessie manages the catalog and versioned metadata.
+- MinIO provides S3-compatible local object storage.
 
 ## ADR-006: PostgreSQL Database Separation
 
-İki PostgreSQL servisi var:
+There are two PostgreSQL services:
 
 - `postgres-airflow`
 - `postgres-source`
 
-`postgres-airflow` yalnız Airflow metadata üçündür.
+`postgres-airflow` is used only for Airflow metadata.
 
-`postgres-source` iki database saxlayır:
+`postgres-source` stores two databases:
 
 - `logistics_source`
 - `nessie_metadata`
 
-Bu ayrım lifecycle və ownership baxımından daha aydındır.
+This separation makes lifecycle and ownership clearer.
 
 ## ADR-007: Airflow Batch Orchestration
 
-Airflow batch orchestration üçündür. Streaming path-a daxil deyil.
+Airflow provides batch orchestration. It is not part of the streaming path.
 
-Airflow-un işi:
+Airflow responsibilities:
 
-- DAG schedule etmək.
-- Source readiness yoxlamaq.
-- Spark job submit etmək.
-- Task status və retry idarə etmək.
+- Schedule DAGs.
+- Check source readiness.
+- Submit Spark jobs.
+- Manage task status and retries.
 
-Bu layihədə Airflow `LocalExecutor` ilə işləyir.
+In this project, Airflow uses `LocalExecutor`.
 
 ## ADR-008: Superset BI Layer
 
-Superset BI və dashboard qatıdır.
+Superset is the BI and dashboard layer.
 
-Superset ClickHouse-a qoşulur və prepared view-lardan chart qurur.
+Superset connects to ClickHouse and builds charts from prepared views.
 
-Səbəb:
+Rationale:
 
-- Compose daxilində lokal işləyir.
-- ClickHouse ilə uyğundur.
-- Dashboard-lar browser üzərindən açılır.
-- Platforma tam lokal qalır.
+- Runs locally within Compose.
+- Works with ClickHouse.
+- Dashboards open in a browser.
+- Keeps the platform fully local.
 
-Superset raw Kafka, raw MinIO və ya Iceberg metadata ilə işləməməlidir. Onun approved data source-u ClickHouse serving qatıdır.
+Superset should not use raw Kafka, raw MinIO, or Iceberg metadata. Its approved data source is the ClickHouse serving layer.
 
-BI obyektləri manual UI konfiqurasiyası kimi saxlanmır. `configs/superset/deliveryflow_bi.yaml` Superset database, dataset, chart və dashboard definition-ları üçün repository source of truth-dur.
+BI objects are not stored as manual UI configuration. `configs/superset/deliveryflow_bi.yaml` is the repository source of truth for Superset database, dataset, chart, and dashboard definitions.
 
-`make import-superset-assets` import workflow-u aşağıdakı qərarları tətbiq edir:
+The `make import-superset-assets` workflow applies these decisions:
 
-- `superset-importer` image əvvəl rebuild olunur ki, YAML və Python importer dəyişiklikləri köhnə image-də qalmasın.
-- YAML-dəki metric adları Superset saved metric kimi yox, chart-level adhoc metric kimi yazılır. Bu `Metric 'event_count' does not exist` və `Metric 'delay_rate' does not exist` xətalarının qarşısını alır.
-- Count/sum column-ları üçün `SUM(...)`, rate və average column-lar üçün `AVG(...)` seçilir.
-- Timeseries chart-lar üçün temporal metadata açıq saxlanılır. `v_delivery_event_volume.event_hour` dataset-də `main_dttm_col` və temporal column-dur, chart-da isə `x_axis` və `granularity_sqla` dəyəridir.
-- `business_date` warehouse KPI dataset-də temporal column kimi qeyd olunur ki, gələcək time-based chart-lar eyni qayda ilə işləsin.
+- The `superset-importer` image is rebuilt first so YAML and Python importer changes are not left behind in an old image.
+- YAML metric names are written as chart-level adhoc metrics rather than Superset saved metrics. This prevents `Metric 'event_count' does not exist` and `Metric 'delay_rate' does not exist` errors.
+- `SUM(...)` is selected for count/sum columns, and `AVG(...)` for rate and average columns.
+- Temporal metadata remains explicit for timeseries charts. `v_delivery_event_volume.event_hour` is the dataset `main_dttm_col` and temporal column, and is also the chart's `x_axis` and `granularity_sqla` value.
+- `business_date` is recorded as a temporal column in the warehouse KPI dataset so future time-based charts follow the same rule.
 
-Bu qərarın məqsədi Superset dashboard-un təmiz environment-də də reproducible import olunmasıdır: dataset-lər, chart-lar və dashboard yaransın, chart render zamanı metric və datetime metadata xətası verməsin.
+The goal is for the Superset dashboard to import reproducibly into a clean environment: datasets, charts, and the dashboard should be created without metric or datetime metadata errors during chart rendering.
 
 ## ADR-009: One Generator, Two Data Types
 
-Generator tək app olaraq saxlanılıb:
+The generator remains a single application:
 
 ```text
 src/producers/synthetic_logistics_producer.py
 ```
 
-Amma iki data tipi yaradır:
+It produces two data types:
 
 - Batch source rows.
 - Stream events.
 
-Bu qərarın səbəbi:
+Rationale:
 
-- Eyni synthetic business domain qorunur.
-- Batch və stream data bir-biri ilə məntiqi uyğun qalır.
-- Lokal lab-da əlavə app complexity yaranmır.
+- The same synthetic business domain is preserved.
+- Batch and stream data remain logically consistent.
+- No additional application complexity is introduced in the local lab.
 
-## ADR-010: `make clean` və `make purge` Ayrımı
+## ADR-010: `make clean` and `make purge` Separation
 
-`make clean` non-destructive qalır:
+`make clean` remains non-destructive:
 
 ```text
 docker compose down --remove-orphans
 ```
 
-`make purge` destructive reset üçündür:
+`make purge` is for a destructive reset:
 
 ```text
 docker compose down --volumes --remove-orphans --rmi local
 ```
 
-Səbəb:
+Rationale:
 
-- Normal cleanup data volume-ları silməməlidir.
-- Schema dəyişiklikləri zamanı tam sıfırlama üçün ayrıca açıq target lazımdır.
+- Normal cleanup must not remove data volumes.
+- Schema changes need a separate, explicit target for a full reset.
 
-## ADR-011: Producer və Platform Tooling Image Ayrımı
+## ADR-011: Producer and Platform Tooling Image Separation
 
-Kafka broker infrastructure, synthetic producer application və operator tooling ayrı ownership sərhədlərində saxlanılır:
+Kafka broker infrastructure, the synthetic producer application, and operator tooling are kept in separate ownership boundaries:
 
 ```text
 services/producer/Dockerfile
@@ -308,15 +308,15 @@ services/tooling/Dockerfile
     -> superset-importer
 ```
 
-Producer image yalnız `src/producers`, `kafka-python` və PostgreSQL batch seed üçün `psycopg2-binary` daşıyır. ClickHouse client, Requests, PyYAML, health/E2E script-ləri və Superset asset-ləri one-shot tooling image-də qalır.
+The producer image contains only `src/producers`, `kafka-python`, and `psycopg2-binary` for PostgreSQL batch seeding. The ClickHouse client, Requests, PyYAML, health/E2E scripts, and Superset assets remain in the one-shot tooling image.
 
-Bu ayrım mövcud Make target və Compose service adlarını dəyişmir. Məqsəd producer runtime-ını BI import və platform diagnostics dependency-lərindən ayırmaq, image rebuild coupling-i azaltmaq və gələcək producer refactor-u üçün aydın service sərhədi yaratmaqdır.
+This separation does not change existing Make targets or Compose service names. Its purpose is to separate the producer runtime from BI import and platform-diagnostics dependencies, reduce image rebuild coupling, and create a clear service boundary for future producer refactoring.
 
-## ADR-012: Modular Producer və Sabit Continuous Rate
+## ADR-012: Modular Producer and Stable Continuous Rate
 
-Producer entrypoint-i operator interfeysi kimi qorunur, implementation isə config, event generation, PostgreSQL source və Kafka streaming modullarına ayrılır. Bu sərhədlər event contract-larını transport və deployment config-dən ayırır, hədəflənmiş unit testləri mümkün edir və gələcək metadata-driven config mərhələsi üçün ayrıca config adapter nöqtəsi yaradır.
+The producer entrypoint is preserved as the operator interface, while the implementation is split into configuration, event generation, PostgreSQL source, and Kafka streaming modules. These boundaries separate event contracts from transport and deployment configuration, enable focused unit tests, and provide a dedicated configuration adapter point for future metadata-driven configuration.
 
-Continuous producer-in default intervalı 60 saniyədir və hər intervalda 10 event batch-i publish edilir. Bu batch-of-10 modeli `T=00:00 -> 10 events`, `T=00:01 -> 10 events` semantikasını birbaşa ifadə edir və rate testlərini sadə saxlayır. Publisher relative `sleep(60)` zənciri əvəzinə monotonic fixed deadlines istifadə edir; buna görə serializasiya və Kafka flush müddəti cumulative rate drift yaratmır. Mövcud `PRODUCER_CONTINUOUS_INTERVAL_SECONDS` environment override-ı backward compatibility üçün saxlanılır, `PRODUCER_EVENTS_PER_INTERVAL` isə interval başına record sayını ayrıca idarə edir.
+The continuous producer has a default interval of 60 seconds and publishes a batch of 10 events per interval. The batch-of-10 model directly expresses the `T=00:00 -> 10 events`, `T=00:01 -> 10 events` semantics and keeps rate tests simple. The publisher uses monotonic fixed deadlines instead of a chain of relative `sleep(60)` calls, so serialization and Kafka flush time do not create cumulative rate drift. The existing `PRODUCER_CONTINUOUS_INTERVAL_SECONDS` environment override is retained for backward compatibility, while `PRODUCER_EVENTS_PER_INTERVAL` controls the record count per interval.
 
 ## Runtime Service Map
 
@@ -362,10 +362,10 @@ flowchart TB
     superset --> clickhouse
 ```
 
-## Operasional Qaydalar
+## Operational Rules
 
-- Runtime config dəyişikliklərindən sonra `docker compose config --quiet` yoxlanmalıdır.
-- Schema dəyişikliklərindən sonra köhnə volume varsa `make purge` tələb oluna bilər.
-- Dashboard üçün ClickHouse view-ları əsas götürülməlidir.
-- Batch job üçün source readiness lazımdır; ClickHouse `delivery_events` boşdursa KPI job fail edə bilər.
-- Streaming üçün əvvəl Flink job submit edilməli, sonra producer işə salınmalıdır.
+- Run `docker compose config --quiet` after runtime configuration changes.
+- After schema changes, `make purge` may be required if an old volume remains.
+- ClickHouse views should be the basis for dashboards.
+- Batch jobs require source readiness; the KPI job may fail if ClickHouse `delivery_events` is empty.
+- Submit the Flink job before starting the producer for streaming.

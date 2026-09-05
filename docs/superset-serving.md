@@ -17,17 +17,17 @@ Fleet tables available for future Superset datasets:
 - `fleet.vehicle_health_alerts`
 - `fleet.vehicle_metrics_5m`
 
-Bu sənəd DeliveryFlow layihəsində BI serving strategiyasını izah edir. Layihədə BI və dashboard qatı üçün Apache Superset istifadə olunur. Superset Docker Compose daxilində işləyir və ClickHouse-dakı hazır serving cədvəllərini və view-ları oxuyur.
+This document explains the BI serving strategy for DeliveryFlow. Apache Superset provides the BI and dashboard layer. Superset runs within Docker Compose and reads prepared serving tables and views from ClickHouse.
 
-## Niyə Superset?
+## Why Superset?
 
-Superset bu lokal lab üçün uyğundur, çünki:
+Superset fits this local lab because it:
 
-- Docker Compose daxilində işləyə bilir.
-- ClickHouse ilə birbaşa işləyə bilir.
-- Dashboard, chart və dataset anlayışlarını ayrıca verir.
-- Stream və batch nəticələrini eyni UI-da göstərmək olur.
-- Lokal development üçün əlavə desktop BI tool tələb etmir.
+- Runs within Docker Compose.
+- Works directly with ClickHouse.
+- Separates dashboards, charts, and datasets.
+- Can display stream and batch results in the same UI.
+- Does not require an additional desktop BI tool for local development.
 
 ```mermaid
 flowchart LR
@@ -60,34 +60,34 @@ username: admin
 password: admin
 ```
 
-ClickHouse connection üçün SQLAlchemy URI:
+SQLAlchemy URI for the ClickHouse connection:
 
 ```text
 clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
 ```
 
-## Superset-in Oxuduğu Data Qatı
+## Superset Data Layer
 
-Superset Kafka-dan oxumamalıdır. Superset raw object storage fayllarını da oxumamalıdır. Bu layihədə Superset üçün approved serving layer ClickHouse-dur.
+Superset should not read from Kafka or raw object-storage files. In this project, the approved serving layer for Superset is ClickHouse.
 
-Əsas səbəb:
+Main reasons:
 
-- Kafka event stream-dir, dashboard üçün sorğu engine deyil.
-- MinIO/Iceberg analytical storage-dur, birbaşa dashboard latency-si üçün seçilməyib.
-- ClickHouse columnar serving DB-dir və dashboard sorğuları üçün daha uyğundur.
+- Kafka is an event stream, not a dashboard query engine.
+- MinIO/Iceberg provide analytical storage and are not selected for direct dashboard latency.
+- ClickHouse is a columnar serving database better suited to dashboard queries.
 
-## Dataset Mənbələri
+## Dataset Sources
 
-Superset-də dataset kimi bu table və view-lar istifadə olunmalıdır.
+These tables and views should be used as Superset datasets.
 
-Əsas cədvəllər:
+Primary tables:
 
 - `delivery.delivery_events`
 - `delivery.delivery_current_state`
 - `delivery.vehicle_current_state`
 - `delivery.daily_delivery_kpi`
 
-Hazır report view-lar:
+Prepared report views:
 
 - `delivery.v_delivery_status_overview`
 - `delivery.v_delay_by_region`
@@ -133,17 +133,17 @@ flowchart TB
     eventVolume --> chart5
 ```
 
-## Dashboard Dizaynı
+## Dashboard Design
 
-Superset dashboard-u 5 əsas statistik hesabat üzərində qurulmalıdır. Bu dashboard operational və analytical suallara cavab verməlidir:
+The Superset dashboard should contain five primary statistical reports. It should answer operational and analytical questions such as:
 
-- Hazırda delivery status paylanması necədir?
-- Hansı region və service level gecikməyə daha çox təsir edir?
-- Vehicle utilization normaldırmı?
-- Warehouse-lar üzrə daily KPI necə dəyişir?
-- Event volume saatlara görə necə paylanır?
+- What is the current delivery-status distribution?
+- Which region and service level contribute most to delays?
+- Is vehicle utilization within the expected range?
+- How do daily KPIs change by warehouse?
+- How is event volume distributed by hour?
 
-## Hesabat 1: Delivery Status Overview
+## Report 1: Delivery Status Overview
 
 Dataset:
 
@@ -151,11 +151,11 @@ Dataset:
 delivery.v_delivery_status_overview
 ```
 
-Məqsəd:
+Purpose:
 
-Statuslara görə event və delivery sayını göstərir. Bu chart operational vəziyyəti tez anlamaq üçündür.
+Shows event and delivery counts by status. This chart provides a quick view of the operational state.
 
-Tövsiyə olunan chart:
+Recommended chart:
 
 - Bar Chart
 
@@ -169,13 +169,13 @@ Dimensions:
 
 - `status`
 
-Dashboard-da cavab verdiyi suallar:
+Questions answered by the dashboard:
 
-- Ən çox hansı status gəlir?
-- Gecikmə hansı statuslarda daha çox görünür?
-- Delivered və delayed event-lərin nisbəti normaldırmı?
+- Which status occurs most often?
+- Which statuses show the most delay?
+- Is the ratio of delivered to delayed events within the expected range?
 
-## Hesabat 2: Delay by Region and Service Level
+## Report 2: Delay by Region and Service Level
 
 Dataset:
 
@@ -183,11 +183,11 @@ Dataset:
 delivery.v_delay_by_region
 ```
 
-Məqsəd:
+Purpose:
 
-Region və service level üzrə gecikmə davranışını göstərir.
+Shows delay behavior by region and service level.
 
-Tövsiyə olunan chart:
+Recommended chart:
 
 - Heatmap
 - Pivot Table
@@ -204,13 +204,13 @@ Dimensions:
 - `region`
 - `service_level`
 
-Dashboard-da cavab verdiyi suallar:
+Questions answered by the dashboard:
 
-- Hansı region gecikir?
-- Express sifarişlər standard sifarişlərdən daha gec çatırmı?
-- Region və service level birlikdə risk yaradırmı?
+- Which region is delayed?
+- Do express orders arrive later than standard orders?
+- Do region and service level create a combined risk?
 
-## Hesabat 3: Vehicle Utilization
+## Report 3: Vehicle Utilization
 
 Dataset:
 
@@ -218,15 +218,15 @@ Dataset:
 delivery.v_vehicle_utilization
 ```
 
-Məqsəd:
+Purpose:
 
-Vehicle-ların son vəziyyətini və utilization səviyyəsini göstərir.
+Shows the latest vehicle state and utilization level.
 
-Tövsiyə olunan chart:
+Recommended chart:
 
 - Table
 - Bar Chart
-- Big Number with Trend, əgər ayrıca filtr istifadə edilirsə
+- Big Number with Trend, when a separate filter is used
 
 Metrics:
 
@@ -239,13 +239,13 @@ Dimensions:
 - `active_status`
 - `route_id`
 
-Dashboard-da cavab verdiyi suallar:
+Questions answered by the dashboard:
 
-- Hansı vehicle daha çox yüklənib?
-- Hansı vehicle sonuncu dəfə nə vaxt event göndərib?
-- Həddindən artıq və ya az istifadə olunan vehicle varmı?
+- Which vehicle is carrying the highest load?
+- When did each vehicle last send an event?
+- Are any vehicles over- or under-utilized?
 
-## Hesabat 4: Warehouse Daily KPI
+## Report 4: Warehouse Daily KPI
 
 Dataset:
 
@@ -253,11 +253,11 @@ Dataset:
 delivery.v_warehouse_daily_kpi
 ```
 
-Məqsəd:
+Purpose:
 
-Warehouse, region və tarix səviyyəsində daily KPI-ları göstərir. Bu chart batch pipeline nəticəsini yoxlamaq üçün əsas yerdir.
+Shows daily KPIs by warehouse, region, and date. This chart is the main place to verify batch pipeline results.
 
-Tövsiyə olunan chart:
+Recommended chart:
 
 - Time-series Line Chart
 - Table
@@ -281,14 +281,14 @@ Dimensions:
 - `region`
 - `warehouse_id`
 
-Dashboard-da cavab verdiyi suallar:
+Questions answered by the dashboard:
 
-- Günlük completed delivery sayı artırmı?
-- Delay rate hansı warehouse-da yüksəkdir?
-- Order value və package count hansı regionda daha çoxdur?
-- Vehicle utilization warehouse performansı ilə uyğun gəlirmi?
+- Is the daily completed-delivery count increasing?
+- Which warehouse has the highest delay rate?
+- Which region has the highest order value and package count?
+- Is vehicle utilization consistent with warehouse performance?
 
-## Hesabat 5: Delivery Event Volume
+## Report 5: Delivery Event Volume
 
 Dataset:
 
@@ -296,11 +296,11 @@ Dataset:
 delivery.v_delivery_event_volume
 ```
 
-Məqsəd:
+Purpose:
 
-Saatlıq event volume-u göstərir. Bu chart streaming pipeline-ın işləyib-işləmədiyini vizual yoxlamağa kömək edir.
+Shows hourly event volume. This chart helps visually verify that the streaming pipeline is working.
 
-Tövsiyə olunan chart:
+Recommended chart:
 
 - Time-series Line Chart
 - Stacked Bar Chart
@@ -316,13 +316,13 @@ Dimensions:
 - `event_type`
 - `region`
 
-Dashboard-da cavab verdiyi suallar:
+Questions answered by the dashboard:
 
-- Event-lər saatlara görə stabil gəlirmi?
-- Hansı event type daha çoxdur?
-- Region üzrə event yükü necə bölünür?
+- Do events arrive at a stable rate by hour?
+- Which event type is most common?
+- How is event load distributed by region?
 
-## Dashboard Layout Təklifi
+## Dashboard Layout Proposal
 
 ```mermaid
 flowchart TB
@@ -347,35 +347,35 @@ flowchart TB
     row3b --> row4
 ```
 
-## Superset Setup Addımları
+## Superset Setup Steps
 
-1. Platformanı başladın:
+1. Start the platform:
 
 ```powershell
 make up
 ```
 
-2. Superset aç:
+2. Open Superset:
 
 ```text
 http://localhost:8088
 ```
 
-3. Database connection yarat:
+3. Create the database connection:
 
 ```text
 clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
 ```
 
-4. Superset obyektlərini BI-as-code import et:
+4. Import the Superset objects as BI-as-code:
 
 ```powershell
 make import-superset-assets
 ```
 
-Bu command `configs/superset/deliveryflow_bi.yaml` faylından database, dataset, chart və dashboard obyektlərini yaradır və ya yeniləyir.
+This command creates or updates database, dataset, chart, and dashboard objects from `configs/superset/deliveryflow_bi.yaml`.
 
-5. Dataset-lərin yarandığını yoxla:
+5. Verify that the datasets were created:
 
 ```text
 v_delivery_status_overview
@@ -385,27 +385,27 @@ v_warehouse_daily_kpi
 v_delivery_event_volume
 ```
 
-6. Dashboard-u aç:
+6. Open the dashboard:
 
 ```text
 http://localhost:8088/superset/dashboard/deliveryflow-operations/
 ```
 
-## Debug və Yoxlama
+## Debugging and Verification
 
-ClickHouse-da view-ları yoxlamaq:
+To verify views in ClickHouse:
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SHOW TABLES FROM delivery"
 ```
 
-Bir view-dan sample oxumaq:
+To read a sample from a view:
 
 ```powershell
 docker compose exec clickhouse clickhouse-client --query "SELECT * FROM delivery.v_delay_by_region LIMIT 10"
 ```
 
-Superset log-ları:
+Superset logs:
 
 ```powershell
 make logs-superset
@@ -417,32 +417,32 @@ Superset URL:
 make url-superset
 ```
 
-## Vacib Qeyd
+## Important Note
 
-ClickHouse init SQL yalnız yeni volume yaradıldıqda avtomatik işləyir. Əgər köhnə volume qalırsa və yeni view-lar görünmürsə, destructive reset lazımdır:
+ClickHouse init SQL runs automatically only when a new volume is created. If an old volume remains and new views are missing, a destructive reset is required:
 
 ```powershell
 make purge
 make up
 ```
 
-`make purge` named volume-ları sildiyi üçün lokal data da silinir.
-## BI as Code Modeli
+`make purge` also removes local data because it deletes named volumes.
+## BI-as-Code Model
 
-Superset obyektleri UI-da elle klikle yaradilmaga mecbur deyil. Bu repo Superset obyektlerini YAML fayli ile saxlayir:
+Superset objects do not need to be created by clicking through the UI. This repository stores them in a YAML file:
 
 ```text
 configs/superset/deliveryflow_bi.yaml
 ```
 
-Bu YAML fayli asagidaki obyektler ucun source of truth rolunu oynayir:
+This YAML file is the source of truth for the following objects:
 
 - database: `DeliveryFlow ClickHouse`
-- datasets: 5 ClickHouse report view-u
+- datasets: 5 ClickHouse report views
 - charts: 5 operational/statistical report
 - dashboard: `DeliveryFlow Operations Dashboard`
-- temporal metadata: `business_date` ve `event_hour`
-- chart metric metadata: Superset adhoc metric formatina cevrilen YAML metric adlari
+- temporal metadata: `business_date` and `event_hour`
+- chart metric metadata: YAML metric names converted to Superset adhoc metric format
 
 Import script:
 
@@ -456,16 +456,16 @@ Import command:
 make import-superset-assets
 ```
 
-Script Superset REST API ile login olur, CSRF token alir ve YAML-daki obyektleri idempotent formada yaradir ve ya yenileyir. `make import-superset-assets` evvel `superset-importer` image-ini rebuild edir ki, script ve YAML deyisiklikleri container daxilinde kohne qalmasin.
+The script logs in to the Superset REST API, obtains a CSRF token, and creates or updates the YAML objects idempotently. `make import-superset-assets` rebuilds the `superset-importer` image first so script and YAML changes are not stale inside the container.
 
-Importer chart parametrlerini de normallasdirir:
+The importer also normalizes chart parameters:
 
-- `event_count`, `completed_deliveries`, `total_order_value` kimi numeric column-lar chart daxilinde `SUM(...)` adhoc metric kimi yazilir.
-- `delay_rate`, `on_time_rate`, `avg_delay_minutes`, `avg_utilization_ratio` kimi rate/average column-lar `AVG(...)` adhoc metric kimi yazilir.
-- `v_delivery_event_volume.event_hour` dataset-de temporal column ve main datetime column kimi saxlanilir.
-- `Hourly Delivery Event Volume` chart-i `x_axis: event_hour`, `granularity_sqla: event_hour`, `time_grain_sqla: PT1H` ile import olunur.
+- Numeric columns such as `event_count`, `completed_deliveries`, and `total_order_value` are written as `SUM(...)` adhoc metrics in the chart.
+- Rate or average columns such as `delay_rate`, `on_time_rate`, `avg_delay_minutes`, and `avg_utilization_ratio` are written as `AVG(...)` adhoc metrics.
+- `v_delivery_event_volume.event_hour` is stored as the dataset temporal and main datetime column.
+- The `Hourly Delivery Event Volume` chart is imported with `x_axis: event_hour`, `granularity_sqla: event_hour`, and `time_grain_sqla: PT1H`.
 
-Bu qayda asagidaki Superset render xetalarinin qarsisini alir:
+This rule prevents the following Superset rendering errors:
 
 ```text
 Metric 'event_count' does not exist
@@ -473,10 +473,10 @@ Metric 'delay_rate' does not exist
 Datetime column not provided as part table configuration and is required by this type of chart
 ```
 
-Superset-in native import/export endpoint-leri de bu strategiyaya uygundur:
+Superset native import/export endpoints also support this strategy:
 
 - dashboard import: `POST /api/v1/dashboard/import/`
 - dataset import: `POST /api/v1/dataset/import/`
 - assets import: `POST /api/v1/assets/import/`
 
-Bu layihedeki `make import-superset-assets` daha sade local workflow ucun YAML-dan REST create/update edir. Gelecekde eyni YAML spec native Superset ZIP export formatina cevrilib `/api/v1/assets/import/` endpoint-ine baglana biler.
+In this project, `make import-superset-assets` performs REST create/update from YAML for a simpler local workflow. In the future, the same YAML specification could be converted to the native Superset ZIP export format and sent to the `/api/v1/assets/import/` endpoint.

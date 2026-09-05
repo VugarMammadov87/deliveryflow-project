@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Initialize dedicated application users for logistics_source and nessie_metadata.
 set -euo pipefail
 
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL

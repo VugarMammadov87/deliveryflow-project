@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Platform Overview | DeliveryFlow Docs</title>
+  <meta name="description" content="Business domain context, dual pipeline architecture, and technology stack of DeliveryFlow.">
+  <link rel="stylesheet" href="assets/css/documentation.css">
+  <script src="assets/js/documentation.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">
+        <span>DeliveryFlow</span>
+        <span class="brand__badge">Overview</span>
+      </a>
+      <div class="header-actions">
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">Theme &#9681;</button>
+        <button class="mobile-menu-toggle" type="button" data-mobile-menu aria-label="Toggle navigation menu">&#9776;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app-container">
+    <aside class="sidebar">
+      <div class="sidebar-group">
+        <div class="sidebar-title">Getting Started</div>
+        <ul class="sidebar-nav">
+          <li><a href="index.html">Portal Home</a></li>
+          <li><a href="platform-overview.html" class="active">Platform Overview</a></li>
+          <li><a href="developer-guide.html">Developer Guide</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Pipelines &amp; Architecture</div>
+        <ul class="sidebar-nav">
+          <li><a href="application-workflow.html">Application Workflow</a></li>
+          <li><a href="streaming-architecture.html">Streaming Architecture</a></li>
+          <li><a href="batch-lakehouse.html">Batch &amp; Lakehouse</a></li>
+          <li><a href="scalability-multi-application.html">Multi-App Scalability</a></li>
+          <li><a href="architecture-decisions.html">Architecture Decisions (ADRs)</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Data &amp; Serving</div>
+        <ul class="sidebar-nav">
+          <li><a href="postgres-source-tables.html">PostgreSQL Sources</a></li>
+          <li><a href="superset-serving.html">Superset BI Serving</a></li>
+        </ul>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-title">Operations</div>
+        <ul class="sidebar-nav">
+          <li><a href="troubleshooting.html">Troubleshooting Guide</a></li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <article class="doc-article">
+        <h1>Platform Overview</h1>
+        <p class="lead" style="font-size: 1.15rem; color: var(--text-muted);">
+          DeliveryFlow is a local modern data platform designed to solve operational and analytical logistics challenges. It demonstrates how modern data engineering bridges low-latency event processing with large-scale Lakehouse storage without incurring cloud infrastructure costs.
+        </p>
+
+        <h2 id="business-problem">The Logistics Business Problem</h2>
+        <p>
+          In freight, e-commerce, and last-mile logistics, delivery operations suffer from two opposing operational demands:
+        </p>
+        <ol>
+          <li><strong>Immediate Operational Awareness (Seconds to Minutes):</strong> Dispatchers and customer support need to know <em>where a parcel is right now</em>, whether a truck is experiencing delays, if engine temperature has spiked, or if fuel is running dangerously low. This requires real-time streaming pipelines.</li>
+          <li><strong>Strategic &amp; Financial Analytics (Daily to Multi-Year):</strong> Logistics executives and supply chain managers need to evaluate <em>daily carrier SLA compliance</em>, warehouse dispatch bottlenecks, regional delay trends, vehicle fleet fuel efficiency, and route optimization. This requires historical batch Lakehouse computation.</li>
+        </ol>
+
+        <div class="callout callout--info">
+          <div class="callout__title">The Dual-Engine Approach</div>
+          <p>
+            DeliveryFlow addresses this by pairing <strong>Apache Flink</strong> for continuous real-time state tracking with <strong>Apache Spark + Apache Iceberg</strong> for robust historical batch analytics, unified through <strong>ClickHouse</strong> as a high-speed analytical serving layer.
+          </p>
+        </div>
+
+        <h2 id="dual-pipeline-design">Dual Pipeline Architecture</h2>
+        <p>
+          The platform routes data through two complementary paths:
+        </p>
+
+        <div class="diagram-container">
+          <div class="flow-grid">
+            <div class="flow-step" style="border-top: 3px solid var(--primary);">
+              <div class="flow-step__title">Operational Streaming</div>
+              <div class="flow-step__tech">Flink DataStream &amp; Flink SQL</div>
+              <div class="flow-step__desc">Sub-second event ingestion, schema validation, and current-state materialization in ClickHouse.</div>
+            </div>
+            <div class="flow-arrow">&amp;</div>
+            <div class="flow-step" style="border-top: 3px solid var(--accent);">
+              <div class="flow-step__title">Analytical Lakehouse</div>
+              <div class="flow-step__tech">Airflow + Spark + Iceberg</div>
+              <div class="flow-step__desc">Daily scheduled KPI computation, ACID commits to MinIO via Nessie, and publishing back to ClickHouse.</div>
+            </div>
+          </div>
+          <div class="diagram-caption">Figure 1: Side-by-side execution of streaming and batch paths.</div>
+        </div>
+
+        <h2 id="core-technologies">Technology Stack Deep Dive</h2>
+        <p>
+          Every technology in DeliveryFlow was chosen to reflect production standards while remaining lightweight enough to run reliably on a developer laptop:
+        </p>
+
+        <div class="card-grid">
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Kafka (KRaft)</h3>
+              <span class="badge badge--implemented">Transport</span>
+            </div>
+            <div class="service-card__role">Event Streaming Backbone</div>
+            <div class="service-card__body">
+              <p>Acts as the distributed, persistent message log. Runs in KRaft mode (no ZooKeeper dependency), decoupling event producers from downstream stream consumers.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Topics:</strong> <code>delivery-events</code>, <code>vehicle-telemetry-events</code></span>
+              <span><strong>Port:</strong> 9092</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Flink</h3>
+              <span class="badge badge--implemented">Stream Compute</span>
+            </div>
+            <div class="service-card__role">Stateful Stream Processing</div>
+            <div class="service-card__body">
+              <p>Provides event-time processing, watermark tracking, and tumbling window aggregations. Runs both DataStream API for delivery orders and Table API/SQL for fleet telemetry.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Jobs:</strong> <code>DeliveryStreamingJob</code>, <code>VehicleTelemetrySqlJob</code></span>
+              <span><strong>Web UI:</strong> Port 8081</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">ClickHouse</h3>
+              <span class="badge badge--implemented">Serving Layer</span>
+            </div>
+            <div class="service-card__role">Real-Time OLAP Database</div>
+            <div class="service-card__body">
+              <p>Columnar database optimized for analytical aggregations and instant dashboard queries. Uses <code>ReplacingMergeTree</code> for deduplicated latest-state records and <code>MergeTree</code> for event logs.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Databases:</strong> <code>delivery</code>, <code>fleet</code></span>
+              <span><strong>Ports:</strong> 8123 (HTTP), 9009 (Native)</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Spark</h3>
+              <span class="badge badge--implemented">Batch Compute</span>
+            </div>
+            <div class="service-card__role">Distributed Batch &amp; Lakehouse ETL</div>
+            <div class="service-card__body">
+              <p>Executes daily enriched KPI aggregations, reads source operational facts via JDBC, and writes versioned Parquet data to Iceberg tables.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Master UI:</strong> Port 8082</span>
+              <span><strong>Application:</strong> <code>daily_kpi_job.py</code></span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Iceberg &amp; Nessie</h3>
+              <span class="badge badge--implemented">Lakehouse</span>
+            </div>
+            <div class="service-card__role">Open Table Format &amp; Catalog</div>
+            <div class="service-card__body">
+              <p>Iceberg provides schema evolution, hidden partitioning, and ACID transactions. Nessie acts as the transactional catalog with git-like branch and commit semantics.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Warehouse:</strong> <code>s3://delivery-lakehouse/warehouse</code></span>
+              <span><strong>Catalog URI:</strong> Port 19120</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">MinIO Object Storage</h3>
+              <span class="badge badge--implemented">Storage</span>
+            </div>
+            <div class="service-card__role">Local S3-Compatible Storage</div>
+            <div class="service-card__body">
+              <p>Stores the physical Parquet data files, metadata JSONs, manifest lists, and manifest files created by Iceberg transactions.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Console UI:</strong> Port 9001</span>
+              <span><strong>API Port:</strong> 9000</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Airflow</h3>
+              <span class="badge badge--implemented">Orchestration</span>
+            </div>
+            <div class="service-card__role">Workflow Scheduler &amp; Control Plane</div>
+            <div class="service-card__body">
+              <p>Coordinates scheduled batch pipelines. Verifies ClickHouse source readiness before submitting Spark container execution.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>DAG:</strong> <code>delivery_daily_kpi</code></span>
+              <span><strong>Webserver UI:</strong> Port 8080</span>
+            </div>
+          </div>
+
+          <div class="service-card">
+            <div class="service-card__header">
+              <h3 class="service-card__title">Apache Superset</h3>
+              <span class="badge badge--implemented">BI &amp; Analytics</span>
+            </div>
+            <div class="service-card__role">BI-as-Code Dashboard Engine</div>
+            <div class="service-card__body">
+              <p>Provides operational delivery performance charts and regional KPIs. Entirely provisioned via declarative YAML configuration.</p>
+            </div>
+            <div class="service-card__meta">
+              <span><strong>Web UI:</strong> Port 8088</span>
+              <span><strong>Config:</strong> <code>deliveryflow_bi.yaml</code></span>
+            </div>
+          </div>
+        </div>
+
+        <h2 id="lifecycle-walkthrough">End-to-End Delivery Lifecycle</h2>
+        <p>Follow a delivery order from initial creation through the entire platform:</p>
+
+        <ol style="padding-left: 1.25rem;">
+          <li><strong>Order Placement &amp; Seed:</strong> The producer generates a delivery order and writes reference data (customer, warehouse, order value) to PostgreSQL <code>logistics_source</code>.</li>
+          <li><strong>Event Publication:</strong> As the delivery progresses, the producer emits lifecycle events (<code>ORDER_LOADED</code>, <code>VEHICLE_DEPARTED</code>, <code>IN_TRANSIT</code>, <code>DELIVERY_DELAYED</code>, <code>DELIVERED</code>) to Kafka <code>delivery-events</code> keyed by <code>delivery_id</code>.</li>
+          <li><strong>Stream Consumption:</strong> Flink's <code>DeliveryStreamingJob</code> validates the JSON schema contract, maintains event ordering, and streams updates via HTTP to ClickHouse.</li>
+          <li><strong>Serving Projection:</strong> ClickHouse updates <code>delivery.delivery_current_state</code> and appends to <code>delivery.delivery_events</code>.</li>
+          <li><strong>Live Operational Dashboard:</strong> Superset queries prepared analytical views in ClickHouse to show real-time status and active delays.</li>
+          <li><strong>Daily Lakehouse Batch:</strong> At midnight, Airflow triggers Spark's <code>daily_kpi_job.py</code>. Spark reads the day's event facts from ClickHouse, aggregates performance metrics, commits Bronze/Gold Iceberg tables to MinIO via Nessie, and writes daily KPI snapshots back to ClickHouse.</li>
+        </ol>
+
+        <div class="callout callout--success">
+          <div class="callout__title">Next Steps</div>
+          <p>
+            Ready to explore the streaming implementation? Read the <a href="streaming-architecture.html">Streaming Architecture Guide</a> or check the <a href="developer-guide.html">Developer Guide</a> to start running commands.
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <aside class="toc-sidebar">
+      <div class="toc-title">On this page</div>
+      <ul class="toc-nav">
+        <li><a href="#business-problem">The Business Problem</a></li>
+        <li><a href="#dual-pipeline-design">Dual Pipeline Architecture</a></li>
+        <li><a href="#core-technologies">Technology Stack</a></li>
+        <li><a href="#lifecycle-walkthrough">Delivery Lifecycle</a></li>
+      </ul>
+    </aside>
+  </div>
+</body>
+</html>
