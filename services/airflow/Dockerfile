@@ -12,7 +12,10 @@ RUN pip install --no-cache-dir \
     apache-airflow-providers-apache-spark==5.0.0 \
     pyspark==3.5.6 \
     clickhouse-connect==0.8.18 \
+    PyYAML==6.0.2 \
     requests==2.32.3
 
 ENV PYTHONPATH=/opt/deliveryflow/src
+COPY --chown=airflow:0 configs/platform.yaml /opt/deliveryflow/configs/platform.yaml
+COPY --chown=airflow:0 src/deliveryflow_config /opt/deliveryflow/src/deliveryflow_config
 COPY --chown=airflow:0 src/etl /opt/deliveryflow/src/etl

@@ -15,6 +15,7 @@ import time
 
 import clickhouse_connect
 
+from deliveryflow_config import load_platform_config
 from producers.synthetic_logistics_producer import main as produce_events
 
 
@@ -25,12 +26,13 @@ def query_count(table: str) -> int:
 
 def query_scalar(sql: str) -> object:
     """Run one ClickHouse scalar query against the local serving database."""
+    clickhouse = load_platform_config().clickhouse(application="delivery")
     client = clickhouse_connect.get_client(
-        host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
-        port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
-        username=os.getenv("CLICKHOUSE_USER", "delivery_app"),
-        password=os.getenv("CLICKHOUSE_PASSWORD", "local-clickhouse-password"),
-        database=os.getenv("CLICKHOUSE_DATABASE", "delivery"),
+        host=clickhouse.host,
+        port=clickhouse.http_port,
+        username=clickhouse.user,
+        password=clickhouse.password,
+        database=clickhouse.database,
     )
     return client.query(sql).result_rows[0][0]
 

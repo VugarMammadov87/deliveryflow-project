@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeliveryFlow Documentation Portal</title>
+    <meta
+      name="description"
+      content="Static documentation portal for the local DeliveryFlow data platform."
+    >
+    <link rel="stylesheet" href="assets/css/documentation.css">
+    <script src="assets/js/documentation.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="site-header__inner">
+        <div>
+          <p class="eyebrow">Local Data Platform</p>
+          <h1>DeliveryFlow Documentation Portal</h1>
+        </div>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme">
+          <span aria-hidden="true">Theme</span>
+        </button>
+      </div>
+    </header>
+
+    <nav class="top-nav" aria-label="Primary navigation">
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#applications">Applications</a>
+      <a href="#operations">Operations</a>
+      <a href="#reference">Reference</a>
+      <a href="#roadmap">Roadmap</a>
+    </nav>
+
+    <main id="main">
+      <section id="overview" class="section hero">
+        <div class="hero__content">
+          <p class="eyebrow">Implemented Status</p>
+          <h2>One local platform for streaming, batch, serving, and BI workflows.</h2>
+          <p>
+            DeliveryFlow runs a Docker Compose based data platform with Kafka, Flink,
+            ClickHouse, Spark, Iceberg, Nessie, MinIO, Airflow, PostgreSQL, and Superset.
+            Delivery is the default workflow; Fleet is selected explicitly with
+            <code>APP=fleet</code>.
+          </p>
+          <div class="command-strip" aria-label="Primary local workflow commands">
+            <button class="copy-button" type="button" data-copy="make up">make up</button>
+            <button class="copy-button" type="button" data-copy="make health">make health</button>
+            <button class="copy-button" type="button" data-copy="make test-e2e APP=fleet">make test-e2e APP=fleet</button>
+          </div>
+        </div>
+        <div class="status-panel" aria-label="Platform status summary">
+          <div>
+            <span class="status status--implemented">Implemented</span>
+            <strong>Delivery stream and BI</strong>
+            <p>Producer, Kafka, Flink, ClickHouse, Spark KPI, and Superset assets.</p>
+          </div>
+          <div>
+            <span class="status status--implemented">Implemented</span>
+            <strong>Fleet telemetry serving</strong>
+            <p>Fleet producer, Kafka topic, Flink SQL resource, and <code>fleet.*</code> tables.</p>
+          </div>
+          <div>
+            <span class="status status--partial">Partial</span>
+            <strong>Central connection config</strong>
+            <p>Python, scripts, and Flink have shared config; one Airflow readiness check still needs cleanup.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="architecture" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture</p>
+          <h2>Current Platform Topology</h2>
+        </div>
+        <div class="flow-diagram" aria-label="DeliveryFlow platform topology">
+          <div class="flow-node">Producer</div>
+          <div class="flow-arrow">-&gt;</div>
+          <div class="flow-node">Kafka</div>
+          <div class="flow-arrow">-&gt;</div>
+          <div class="flow-node">Flink</div>
+          <div class="flow-arrow">-&gt;</div>
+          <div class="flow-node">ClickHouse</div>
+          <div class="flow-arrow">-&gt;</div>
+          <div class="flow-node">Superset</div>
+        </div>
+        <div class="grid grid--three">
+          <article class="info-card">
+            <h3>Control Plane</h3>
+            <p><code>configs/applications</code>, <code>configs/datasets</code>, contracts, and shared platform config.</p>
+          </article>
+          <article class="info-card">
+            <h3>Data Plane</h3>
+            <p>Kafka, Flink, Spark, ClickHouse, Iceberg, Nessie, MinIO, PostgreSQL, Airflow, Superset.</p>
+          </article>
+          <article class="info-card">
+            <h3>Runtime Selection</h3>
+            <p><code>delivery</code> remains the default; <code>APP=fleet</code> selects fleet-specific runtime paths.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="applications" class="section section--band">
+        <div class="section-heading">
+          <p class="eyebrow">Applications</p>
+          <h2>Delivery and Fleet</h2>
+        </div>
+        <div class="app-list">
+          <article class="app-row">
+            <div>
+              <span class="status status--implemented">Implemented</span>
+              <h3>Delivery</h3>
+              <p>Default operational stream and BI flow.</p>
+            </div>
+            <code>delivery-events -&gt; delivery.* -&gt; Superset</code>
+          </article>
+          <article class="app-row">
+            <div>
+              <span class="status status--implemented">Implemented</span>
+              <h3>Fleet</h3>
+              <p>Telemetry stream with Flink SQL transformations and ClickHouse serving tables.</p>
+            </div>
+            <code>vehicle-telemetry-events -&gt; fleet.*</code>
+          </article>
+          <article class="app-row">
+            <div>
+              <span class="status status--future">Future</span>
+              <h3>Warehouse, Finance, and More</h3>
+              <p>Future applications should add metadata, contracts, target DDL, and only necessary domain code.</p>
+            </div>
+            <code>configs/applications/&lt;app&gt;.yaml</code>
+          </article>
+        </div>
+      </section>
+
+      <section id="operations" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Operations</p>
+          <h2>Common Commands</h2>
+        </div>
+        <div class="command-grid">
+          <pre><code>make config</code></pre>
+          <pre><code>make up</code></pre>
+          <pre><code>make submit-flink-job APP=fleet</code></pre>
+          <pre><code>make produce APP=fleet</code></pre>
+          <pre><code>make import-superset-assets</code></pre>
+          <pre><code>make test-e2e APP=fleet</code></pre>
+        </div>
+        <p class="note">
+          Cleanup commands are intentionally separated. Ordinary cleanup should preserve named volumes and images;
+          destructive cleanup requires explicit operator intent.
+        </p>
+      </section>
+
+      <section id="reference" class="section section--band">
+        <div class="section-heading">
+          <p class="eyebrow">Reference</p>
+          <h2>Source Documents and Config Files</h2>
+        </div>
+        <div class="reference-grid">
+          <a href="../README.md">README.md</a>
+          <a href="../requirement.md">requirement.md</a>
+          <a href="../plan.md">plan.md</a>
+          <a href="application-workflow.md">application-workflow.md</a>
+          <a href="architecture-decisions.md">architecture-decisions.md</a>
+          <a href="postgres-source-tables.md">postgres-source-tables.md</a>
+          <a href="superset-serving.md">superset-serving.md</a>
+          <a href="scalability-multi-application.md">scalability-multi-application.md</a>
+          <a href="../configs/platform.yaml">configs/platform.yaml</a>
+          <a href="../services/flink/src/main/resources/sql/fleet/vehicle_telemetry.sql">fleet SQL resource</a>
+        </div>
+      </section>
+
+      <section id="roadmap" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">Roadmap</p>
+          <h2>Scalability Boundaries</h2>
+        </div>
+        <ol class="roadmap">
+          <li><span class="status status--implemented">Implemented</span> Multi-application foundation for delivery and fleet.</li>
+          <li><span class="status status--planned">Planned</span> Metadata validation for applications, datasets, contracts, and targets.</li>
+          <li><span class="status status--planned">Planned</span> Generic batch ingestion framework for standard table loads.</li>
+          <li><span class="status status--future">Future</span> Airflow DAG factory and modular per-application BI imports.</li>
+        </ol>
+      </section>
+    </main>
+  </body>
+</html>

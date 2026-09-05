@@ -1,0 +1,66 @@
+platform:
+  kafka:
+    internal_bootstrap_servers: kafka:9092
+    external_bootstrap_servers: localhost:9092
+    topics:
+      delivery_events: delivery-events
+      vehicle_telemetry_events: vehicle-telemetry-events
+
+  clickhouse:
+    http_url: http://clickhouse:8123
+    host: clickhouse
+    http_port: 8123
+    native_port: 9000
+    databases:
+      delivery: delivery
+      fleet: fleet
+    username_env: CLICKHOUSE_USER
+    password_env: CLICKHOUSE_PASSWORD
+
+  postgres:
+    source:
+      host: postgres-source
+      port: 5432
+      database_env: SOURCE_DB_NAME
+      username_env: SOURCE_DB_USER
+      password_env: SOURCE_DB_PASSWORD
+    airflow:
+      host: postgres-airflow
+      port: 5432
+      database_env: AIRFLOW_DB_NAME
+      username_env: AIRFLOW_DB_USER
+      password_env: AIRFLOW_DB_PASSWORD
+    nessie:
+      host: postgres-source
+      port: 5432
+      database_env: NESSIE_DB_NAME
+      username_env: NESSIE_DB_USER
+      password_env: NESSIE_DB_PASSWORD
+
+  object_storage:
+    endpoint: http://minio:9000
+    bucket_env: S3_BUCKET
+    region_env: S3_REGION
+    access_key_env: MINIO_ROOT_USER
+    secret_key_env: MINIO_ROOT_PASSWORD
+    warehouse_env: ICEBERG_WAREHOUSE
+
+  nessie:
+    uri: http://nessie:19120/api/v2
+    ref_env: NESSIE_REF
+
+  superset:
+    base_url: http://superset:8088
+    asset_file: /app/configs/superset/deliveryflow_bi.yaml
+    username_env: SUPERSET_ADMIN_USER
+    password_env: SUPERSET_ADMIN_PASSWORD
+
+  spark:
+    master_url: spark://spark-master:7077
+    ui_url: http://spark-master:8080
+
+  flink:
+    rest_url: http://flink-jobmanager:8081
+
+  airflow:
+    web_url: http://airflow-webserver:8080

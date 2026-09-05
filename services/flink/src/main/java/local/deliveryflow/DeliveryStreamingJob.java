@@ -27,12 +27,10 @@ public class DeliveryStreamingJob {
      * credentials.</p>
      */
     public static void main(String[] args) throws Exception {
-        String bootstrapServers = getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
-        String topic = getenv("KAFKA_TOPIC", "delivery-events");
-        String clickhouseUrl = getenv("CLICKHOUSE_URL", "http://clickhouse:8123");
-        String clickhouseDatabase = getenv("CLICKHOUSE_DATABASE", "delivery");
-        String clickhouseUser = getenv("CLICKHOUSE_USER", "delivery_app");
-        String clickhousePassword = getenv("CLICKHOUSE_PASSWORD", "local-clickhouse-password");
+        PlatformConfig platform = PlatformConfig.load();
+        PlatformConfig.ClickHouse clickhouse = platform.clickHouse("delivery");
+        String bootstrapServers = platform.kafkaBootstrapServers();
+        String topic = platform.deliveryTopic();
 
         /*
          * Checkpointing is enabled because the sink writes operational state.
@@ -76,15 +74,9 @@ public class DeliveryStreamingJob {
             .name("validate-required-v1-fields")
             .keyBy(event -> event.deliveryId);
 
-        events.addSink(new ClickHouseDeliverySink(clickhouseUrl, clickhouseDatabase, clickhouseUser, clickhousePassword))
+        events.addSink(new ClickHouseDeliverySink(clickhouse.url, clickhouse.database, clickhouse.user, clickhouse.password))
             .name("clickhouse-operational-serving-sink");
 
         env.execute("deliveryflow-kafka-flink-clickhouse");
-    }
-
-    /** Return an environment variable value or a local Docker Compose default. */
-    private static String getenv(String name, String fallback) {
-        String value = System.getenv(name);
-        return value == null || value.isBlank() ? fallback : value;
     }
 }

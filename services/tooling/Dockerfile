@@ -7,7 +7,7 @@ ENV PYTHONPATH=/app/src \
 
 COPY src /app/src
 COPY scripts /app/scripts
-COPY configs/superset /app/configs/superset
+COPY configs /app/configs
 
 RUN pip install --no-cache-dir \
     kafka-python==2.0.2 \

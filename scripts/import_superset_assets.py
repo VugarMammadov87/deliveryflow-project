@@ -15,9 +15,12 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote_plus
 
 import requests
 import yaml
+
+from deliveryflow_config import load_platform_config
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,12 @@ class SupersetConfig:
     @classmethod
     def from_env(cls) -> "SupersetConfig":
         """Load Superset URL, credentials, and asset path from environment vars."""
+        superset = load_platform_config().superset()
         return cls(
-            base_url=os.getenv("SUPERSET_BASE_URL", "http://superset:8088").rstrip("/"),
-            username=os.getenv("SUPERSET_ADMIN_USER", "admin"),
-            password=os.getenv("SUPERSET_ADMIN_PASSWORD", "admin"),
-            asset_file=Path(os.getenv("SUPERSET_ASSET_FILE", "/app/configs/superset/deliveryflow_bi.yaml")),
+            base_url=superset.base_url,
+            username=superset.username,
+            password=superset.password,
+            asset_file=superset.asset_file,
             timeout_seconds=int(os.getenv("SUPERSET_IMPORT_TIMEOUT_SECONDS", "120")),
         )
 
@@ -143,7 +147,7 @@ def database_id(client: SupersetClient, spec: dict[str, Any]) -> int:
     existing = find_by_name(client.get_all("/api/v1/database/"), ("database_name", "database_name_text"), spec["name"])
     payload = {
         "database_name": spec["name"],
-        "sqlalchemy_uri": spec["sqlalchemy_uri"],
+        "sqlalchemy_uri": spec.get("sqlalchemy_uri", clickhouse_sqlalchemy_uri()),
         "expose_in_sqllab": bool(spec.get("expose_in_sqllab", True)),
     }
     if existing:
@@ -151,6 +155,14 @@ def database_id(client: SupersetClient, spec: dict[str, Any]) -> int:
         client.update(f"/api/v1/database/{db_id}", payload)
         return db_id
     return int(client.create("/api/v1/database/", payload)["id"])
+
+
+def clickhouse_sqlalchemy_uri() -> str:
+    """Build the Superset ClickHouse URI from shared platform config."""
+    clickhouse = load_platform_config().clickhouse(application="delivery")
+    user = quote_plus(clickhouse.user)
+    password = quote_plus(clickhouse.password)
+    return f"clickhousedb://{user}:{password}@{clickhouse.host}:{clickhouse.http_port}/{clickhouse.database}"
 
 
 def dataset_id(client: SupersetClient, db_id: int, spec: dict[str, Any]) -> int:

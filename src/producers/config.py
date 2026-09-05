@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from deliveryflow_config import load_platform_config
+
 
 def _is_enabled(value: str) -> bool:
     """Return whether an environment value represents an enabled flag."""
@@ -61,9 +63,10 @@ class ProducerConfig:
         The interval variable remains the public override, while records per
         interval controls throughput without coupling it to sleep timing.
         """
+        kafka = load_platform_config().kafka()
         return cls(
-            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092"),
-            topic=os.getenv("KAFKA_TOPIC", "delivery-events"),
+            bootstrap_servers=kafka.bootstrap_servers,
+            topic=kafka.delivery_events_topic,
             event_count=int(os.getenv("PRODUCER_EVENT_COUNT", "25")),
             interval_seconds=float(os.getenv("PRODUCER_INTERVAL_SECONDS", "0.2")),
             mode=os.getenv("PRODUCER_MODE", "both").lower(),
@@ -72,7 +75,7 @@ class ProducerConfig:
             continuous_interval_seconds=float(os.getenv("PRODUCER_CONTINUOUS_INTERVAL_SECONDS", "60")),
             continuous_records_per_interval=int(os.getenv("PRODUCER_EVENTS_PER_INTERVAL", "10")),
             app=os.getenv("PRODUCER_APP", "delivery").lower(),
-            fleet_topic=os.getenv("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", "vehicle-telemetry-events"),
+            fleet_topic=kafka.vehicle_telemetry_events_topic,
         )
 
 
@@ -96,10 +99,11 @@ class SourceDbConfig:
     @classmethod
     def from_env(cls) -> "SourceDbConfig":
         """Read PostgreSQL source settings from environment variables."""
+        source = load_platform_config().postgres("source")
         return cls(
-            host=os.getenv("SOURCE_DB_HOST", "localhost"),
-            port=int(os.getenv("SOURCE_DB_PORT", "15433")),
-            dbname=os.getenv("SOURCE_DB_NAME", "logistics_source"),
-            user=os.getenv("SOURCE_DB_USER", "source_app"),
-            password=os.getenv("SOURCE_DB_PASSWORD", "local-source-password"),
+            host=source.host,
+            port=source.port,
+            dbname=source.database,
+            user=source.user,
+            password=source.password,
         )

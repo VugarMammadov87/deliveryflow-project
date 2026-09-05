@@ -17,6 +17,7 @@ from typing import Callable
 
 import clickhouse_connect
 import requests
+from deliveryflow_config import load_platform_config
 from kafka import KafkaConsumer
 
 
@@ -64,16 +65,17 @@ def retry_check(factory: Callable[[], Check], max_wait_seconds: float, interval_
 def kafka_check() -> Check:
     """Verify Kafka is reachable and the expected delivery topic exists."""
     try:
+        kafka = load_platform_config().kafka()
         consumer = KafkaConsumer(
-            bootstrap_servers=os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"),
+            bootstrap_servers=kafka.bootstrap_servers,
             request_timeout_ms=5000,
             api_version_auto_timeout_ms=5000,
         )
         topics = consumer.topics()
         consumer.close()
         required_topics = {
-            os.getenv("KAFKA_TOPIC", "delivery-events"),
-            os.getenv("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", "vehicle-telemetry-events"),
+            kafka.delivery_events_topic,
+            kafka.vehicle_telemetry_events_topic,
         }
         missing_topics = required_topics.difference(topics)
         return Check("Kafka", not missing_topics, f"topics={sorted(topics)} missing={sorted(missing_topics)}")
@@ -84,12 +86,13 @@ def kafka_check() -> Check:
 def clickhouse_check() -> Check:
     """Verify ClickHouse accepts authenticated analytical queries."""
     try:
+        clickhouse = load_platform_config().clickhouse(application="delivery")
         client = clickhouse_connect.get_client(
-            host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
-            port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
-            username=os.getenv("CLICKHOUSE_USER", "delivery_app"),
-            password=os.getenv("CLICKHOUSE_PASSWORD", "local-clickhouse-password"),
-            database=os.getenv("CLICKHOUSE_DATABASE", "delivery"),
+            host=clickhouse.host,
+            port=clickhouse.http_port,
+            username=clickhouse.user,
+            password=clickhouse.password,
+            database=clickhouse.database,
         )
         result = client.query("SELECT 1").result_rows[0][0]
         return Check("ClickHouse", result == 1, "SELECT 1 succeeded")
@@ -101,17 +104,26 @@ def main() -> int:
     """Run all platform checks and return a shell-friendly health status."""
     startup_wait_seconds = float(os.getenv("HEALTH_STARTUP_WAIT_SECONDS", "180"))
     retry_interval_seconds = float(os.getenv("HEALTH_RETRY_INTERVAL_SECONDS", "5"))
+    platform = load_platform_config()
+    storage = platform.raw["object_storage"]
+    nessie = platform.raw["nessie"]
+    spark = platform.raw["spark"]
+    flink = platform.raw["flink"]
+    airflow = platform.raw["airflow"]
+    superset = platform.superset()
+    airflow_postgres = platform.postgres("airflow")
+    source_postgres = platform.postgres("source")
     checks = [
         retry_check(kafka_check, startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: tcp_check("PostgresAirflow", "postgres-airflow", 5432), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: tcp_check("PostgresSource", "postgres-source", 5432), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("MinIO", "http://minio:9000/minio/health/ready"), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("Nessie", "http://nessie:19120/api/v2/config"), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("Spark", "http://spark-master:8080"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: tcp_check("PostgresAirflow", airflow_postgres.host, airflow_postgres.port), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: tcp_check("PostgresSource", source_postgres.host, source_postgres.port), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("MinIO", f"{storage['endpoint']}/minio/health/ready"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Nessie", f"{nessie['uri']}/config"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Spark", spark["ui_url"]), startup_wait_seconds, retry_interval_seconds),
         retry_check(clickhouse_check, startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("Superset", "http://superset:8088/health"), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("Flink", "http://flink-jobmanager:8081/overview"), startup_wait_seconds, retry_interval_seconds),
-        retry_check(lambda: http_check("Airflow", "http://airflow-webserver:8080/health"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Superset", f"{superset.base_url}/health"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Flink", f"{flink['rest_url']}/overview"), startup_wait_seconds, retry_interval_seconds),
+        retry_check(lambda: http_check("Airflow", f"{airflow['web_url']}/health"), startup_wait_seconds, retry_interval_seconds),
     ]
     for check in checks:
         status = "healthy" if check.ok else "unhealthy"

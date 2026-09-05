@@ -18,7 +18,10 @@ NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 APP ?= delivery
+PRODUCER_APP ?= $(APP)
 COMPOSE_PROJECT_NAME ?= deliveryflow
+
+export PRODUCER_APP
 
 .PHONY: help config build pull up down clean clean-keep-images purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \

@@ -8,11 +8,11 @@ writes raw and gold Iceberg tables through Nessie, then publishes dashboard-read
 daily KPI rows back to ClickHouse for Superset.
 """
 
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import clickhouse_connect
+from deliveryflow_config import load_platform_config
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
@@ -31,12 +31,13 @@ class ClickHouseConfig:
     @classmethod
     def from_env(cls) -> "ClickHouseConfig":
         """Load local/container ClickHouse settings without hardcoding runtime env."""
+        clickhouse = load_platform_config().clickhouse(application="delivery")
         return cls(
-            host=os.getenv("CLICKHOUSE_HOST", "clickhouse"),
-            http_port=int(os.getenv("CLICKHOUSE_HTTP_PORT", "8123")),
-            database=os.getenv("CLICKHOUSE_DATABASE", "delivery"),
-            user=os.getenv("CLICKHOUSE_USER", "delivery_app"),
-            password=os.getenv("CLICKHOUSE_PASSWORD", "local-clickhouse-password"),
+            host=clickhouse.host,
+            http_port=clickhouse.http_port,
+            database=clickhouse.database,
+            user=clickhouse.user,
+            password=clickhouse.password,
         )
 
     @property

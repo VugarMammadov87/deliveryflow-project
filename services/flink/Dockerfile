@@ -9,3 +9,4 @@ RUN mvn -Dflink.kafka.connector.version=${FLINK_KAFKA_CONNECTOR_VERSION} -DskipT
 
 FROM ${FLINK_BASE_IMAGE}
 COPY --from=build /build/target/delivery-flink-job.jar /opt/flink/usrlib/delivery-flink-job.jar
+COPY configs/platform.yaml /opt/deliveryflow/configs/platform.yaml

@@ -10,6 +10,8 @@ import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.types.Row;
 import org.apache.flink.types.RowKind;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -19,6 +21,13 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Independent fleet telemetry streaming application implemented with Flink SQL.
@@ -30,6 +39,11 @@ import java.time.format.DateTimeFormatter;
  * transformations that can become the reference pattern for future domains.</p>
  */
 public class VehicleTelemetrySqlJob {
+    private static final String SQL_RESOURCE = "/sql/fleet/vehicle_telemetry.sql";
+    private static final Set<String> SQL_SECTIONS = Collections.unmodifiableSet(
+        Arrays.stream(new String[] {"SOURCE", "RAW TELEMETRY", "CURRENT STATE", "HEALTH ALERTS", "5 MINUTE METRICS"})
+            .collect(Collectors.toSet())
+    );
     private static final DateTimeFormatter CLICKHOUSE_TIMESTAMP_FORMATTER =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
 
@@ -42,15 +56,20 @@ public class VehicleTelemetrySqlJob {
      * Makefile submitter uses for idempotent runtime checks.</p>
      */
     public static void main(String[] args) throws Exception {
-        String bootstrapServers = getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092");
-        String topic = getenv("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", "vehicle-telemetry-events");
-        String clickhouseUrl = getenv("CLICKHOUSE_URL", "http://clickhouse:8123");
-        String clickhouseDatabase = getenv("FLEET_CLICKHOUSE_DATABASE", "fleet");
-        String clickhouseUser = getenv("CLICKHOUSE_USER", "delivery_app");
-        String clickhousePassword = getenv("CLICKHOUSE_PASSWORD", "local-clickhouse-password");
+        PlatformConfig platform = PlatformConfig.load();
+        PlatformConfig.ClickHouse clickhouse = platform.clickHouse("fleet");
+        String bootstrapServers = platform.kafkaBootstrapServers();
+        String topic = platform.vehicleTelemetryTopic();
         double overspeedThreshold = Double.parseDouble(getenv("FLEET_OVERSPEED_THRESHOLD_KMH", "100"));
         double lowFuelThreshold = Double.parseDouble(getenv("FLEET_LOW_FUEL_THRESHOLD_PCT", "15"));
         double engineTemperatureThreshold = Double.parseDouble(getenv("FLEET_ENGINE_TEMPERATURE_THRESHOLD_C", "105"));
+        Map<String, String> sql = loadSqlSections(SQL_RESOURCE);
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("KAFKA_BOOTSTRAP_SERVERS", bootstrapServers);
+        variables.put("KAFKA_TOPIC_VEHICLE_TELEMETRY_EVENTS", topic);
+        variables.put("FLEET_OVERSPEED_THRESHOLD_KMH", Double.toString(overspeedThreshold));
+        variables.put("FLEET_LOW_FUEL_THRESHOLD_PCT", Double.toString(lowFuelThreshold));
+        variables.put("FLEET_ENGINE_TEMPERATURE_THRESHOLD_C", Double.toString(engineTemperatureThreshold));
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.enableCheckpointing(10_000L);
@@ -58,27 +77,27 @@ public class VehicleTelemetrySqlJob {
         EnvironmentSettings settings = EnvironmentSettings.newInstance().inStreamingMode().build();
         StreamTableEnvironment tableEnv = StreamTableEnvironment.create(env, settings);
 
-        tableEnv.executeSql(sourceDdl(bootstrapServers, topic));
+        tableEnv.executeSql(render(section(sql, "SOURCE"), variables));
 
         submit(
             tableEnv,
-            rawTelemetryQuery(),
-            new FleetClickHouseSink(clickhouseUrl, clickhouseDatabase, clickhouseUser, clickhousePassword, "vehicle_telemetry_events", FleetRowType.RAW)
+            section(sql, "RAW TELEMETRY"),
+            new FleetClickHouseSink(clickhouse.url, clickhouse.database, clickhouse.user, clickhouse.password, "vehicle_telemetry_events", FleetRowType.RAW)
         );
         submit(
             tableEnv,
-            currentStateQuery(),
-            new FleetClickHouseSink(clickhouseUrl, clickhouseDatabase, clickhouseUser, clickhousePassword, "vehicle_current_state", FleetRowType.STATE)
+            section(sql, "CURRENT STATE"),
+            new FleetClickHouseSink(clickhouse.url, clickhouse.database, clickhouse.user, clickhouse.password, "vehicle_current_state", FleetRowType.STATE)
         );
         submit(
             tableEnv,
-            alertsQuery(overspeedThreshold, lowFuelThreshold, engineTemperatureThreshold),
-            new FleetClickHouseSink(clickhouseUrl, clickhouseDatabase, clickhouseUser, clickhousePassword, "vehicle_health_alerts", FleetRowType.ALERT)
+            render(section(sql, "HEALTH ALERTS"), variables),
+            new FleetClickHouseSink(clickhouse.url, clickhouse.database, clickhouse.user, clickhouse.password, "vehicle_health_alerts", FleetRowType.ALERT)
         );
         submit(
             tableEnv,
-            metricsQuery(overspeedThreshold, lowFuelThreshold),
-            new FleetClickHouseSink(clickhouseUrl, clickhouseDatabase, clickhouseUser, clickhousePassword, "vehicle_metrics_5m", FleetRowType.METRICS)
+            render(section(sql, "5 MINUTE METRICS"), variables),
+            new FleetClickHouseSink(clickhouse.url, clickhouse.database, clickhouse.user, clickhouse.password, "vehicle_metrics_5m", FleetRowType.METRICS)
         );
 
         env.execute("fleet-vehicle-telemetry-sql");
@@ -99,131 +118,71 @@ public class VehicleTelemetrySqlJob {
     }
 
     /**
-     * Defines the Kafka-backed Flink SQL source table for telemetry events.
-     *
-     * <p>The schema mirrors `src/contracts/fleet/vehicle_telemetry_v1.schema.json`.
-     * Event time uses `event_timestamp` with a small watermark so the five-minute
-     * metrics query can run with proper streaming-time semantics.</p>
-     */
-    private static String sourceDdl(String bootstrapServers, String topic) {
-        return "CREATE TABLE vehicle_telemetry_source ("
-            + "schema_version INT,"
-            + "event_id STRING,"
-            + "event_type STRING,"
-            + "event_timestamp TIMESTAMP_LTZ(3),"
-            + "ingestion_timestamp TIMESTAMP_LTZ(3),"
-            + "vehicle_id STRING,"
-            + "driver_id STRING,"
-            + "latitude DOUBLE,"
-            + "longitude DOUBLE,"
-            + "speed_kmh DOUBLE,"
-            + "fuel_level_pct DOUBLE,"
-            + "engine_temperature_c DOUBLE,"
-            + "odometer_km DOUBLE,"
-            + "engine_status STRING,"
-            + "vehicle_status STRING,"
-            + "WATERMARK FOR event_timestamp AS event_timestamp - INTERVAL '10' SECOND"
-            + ") WITH ("
-            + "'connector' = 'kafka',"
-            + "'topic' = '" + topic + "',"
-            + "'properties.bootstrap.servers' = '" + bootstrapServers + "',"
-            + "'properties.group.id' = 'fleet-vehicle-telemetry-sql',"
-            + "'scan.startup.mode' = 'earliest-offset',"
-            + "'format' = 'json',"
-            + "'json.timestamp-format.standard' = 'ISO-8601',"
-            + "'json.fail-on-missing-field' = 'false',"
-            + "'json.ignore-parse-errors' = 'true'"
-            + ")";
-    }
-
-    /**
-     * Selects valid telemetry events for the immutable history table.
-     *
-     * <p>This query is intentionally thin: raw history should preserve the event
-     * payload after contract and event-type filtering so replay and debugging
-     * remain possible.</p>
-     */
-    private static String rawTelemetryQuery() {
-        return "SELECT "
-            + "schema_version, event_id, event_type, event_timestamp, ingestion_timestamp, vehicle_id, driver_id, "
-            + "latitude, longitude, speed_kmh, fuel_level_pct, engine_temperature_c, odometer_km, engine_status, vehicle_status "
-            + "FROM vehicle_telemetry_source WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY'";
-    }
-
-    /**
-     * Projects the latest-state fields used by `fleet.vehicle_current_state`.
-     *
-     * <p>ClickHouse handles latest-row materialization with ReplacingMergeTree
-     * and a version column derived from event time, so the stream can emit each
-     * observed telemetry state without keeping custom keyed Java state here.</p>
-     */
-    private static String currentStateQuery() {
-        return "SELECT "
-            + "vehicle_id, event_id, event_timestamp, driver_id, latitude, longitude, speed_kmh, fuel_level_pct, "
-            + "engine_temperature_c, odometer_km, engine_status, vehicle_status "
-            + "FROM vehicle_telemetry_source WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY'";
-    }
-
-    /**
-     * Builds alert rows from business thresholds configured in `.env`.
-     *
-     * <p>The CASE expressions keep alert classification visible in SQL, which
-     * makes threshold logic easier to audit than burying it in a custom Java
-     * mapper. The query emits only abnormal telemetry rows.</p>
-     */
-    private static String alertsQuery(double overspeedThreshold, double lowFuelThreshold, double engineTemperatureThreshold) {
-        return "SELECT event_id, vehicle_id, event_timestamp, "
-            + "CASE "
-            + "WHEN engine_temperature_c >= " + engineTemperatureThreshold + " THEN 'ENGINE_TEMPERATURE_HIGH' "
-            + "WHEN fuel_level_pct <= " + lowFuelThreshold + " THEN 'LOW_FUEL' "
-            + "WHEN speed_kmh >= " + overspeedThreshold + " THEN 'OVERSPEED' "
-            + "ELSE 'NORMAL' END AS alert_type, "
-            + "CASE "
-            + "WHEN engine_temperature_c >= " + engineTemperatureThreshold + " THEN 'critical' "
-            + "WHEN fuel_level_pct <= " + lowFuelThreshold + " THEN 'warning' "
-            + "WHEN speed_kmh >= " + overspeedThreshold + " THEN 'warning' "
-            + "ELSE 'info' END AS severity, "
-            + "CASE "
-            + "WHEN engine_temperature_c >= " + engineTemperatureThreshold + " THEN engine_temperature_c "
-            + "WHEN fuel_level_pct <= " + lowFuelThreshold + " THEN fuel_level_pct "
-            + "WHEN speed_kmh >= " + overspeedThreshold + " THEN speed_kmh "
-            + "ELSE 0.0 END AS observed_value, "
-            + "CASE "
-            + "WHEN engine_temperature_c >= " + engineTemperatureThreshold + " THEN " + engineTemperatureThreshold + " "
-            + "WHEN fuel_level_pct <= " + lowFuelThreshold + " THEN " + lowFuelThreshold + " "
-            + "WHEN speed_kmh >= " + overspeedThreshold + " THEN " + overspeedThreshold + " "
-            + "ELSE 0.0 END AS threshold "
-            + "FROM vehicle_telemetry_source "
-            + "WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY' AND "
-            + "(engine_temperature_c >= " + engineTemperatureThreshold + " OR fuel_level_pct <= " + lowFuelThreshold + " OR speed_kmh >= " + overspeedThreshold + ")";
-    }
-
-    /**
-     * Aggregates telemetry into five-minute operational metrics.
-     *
-     * <p>This is the reference pattern for future SQL-based stream marts:
-     * define a bounded event-time window, group the stream, and write the
-     * serving result to a dedicated ClickHouse table.</p>
-     */
-    private static String metricsQuery(double overspeedThreshold, double lowFuelThreshold) {
-        return "SELECT window_start, window_end, "
-            + "COUNT(DISTINCT vehicle_id) AS active_vehicle_count, "
-            + "AVG(speed_kmh) AS avg_speed_kmh, "
-            + "AVG(fuel_level_pct) AS avg_fuel_level_pct, "
-            + "MAX(engine_temperature_c) AS max_engine_temperature_c, "
-            + "SUM(CASE WHEN speed_kmh >= " + overspeedThreshold + " THEN 1 ELSE 0 END) AS overspeed_vehicle_count, "
-            + "SUM(CASE WHEN fuel_level_pct <= " + lowFuelThreshold + " THEN 1 ELSE 0 END) AS low_fuel_vehicle_count "
-            + "FROM TABLE(TUMBLE(TABLE vehicle_telemetry_source, DESCRIPTOR(event_timestamp), INTERVAL '5' MINUTES)) "
-            + "WHERE schema_version = 1 AND event_type = 'VEHICLE_TELEMETRY' "
-            + "GROUP BY window_start, window_end";
-    }
-
-    /**
      * Reads runtime configuration without forcing every setting into code.
      */
     private static String getenv(String name, String fallback) {
         String value = System.getenv(name);
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    /**
+     * Loads named SQL sections from the application SQL resource.
+     */
+    private static Map<String, String> loadSqlSections(String resourcePath) throws Exception {
+        InputStream stream = VehicleTelemetrySqlJob.class.getResourceAsStream(resourcePath);
+        if (stream == null) {
+            throw new IllegalStateException("SQL resource not found: " + resourcePath);
+        }
+
+        Map<String, StringBuilder> builders = new LinkedHashMap<>();
+        String currentSection = null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("-- ")) {
+                    String section = trimmed.substring(3).trim().toUpperCase(Locale.ROOT);
+                    if (SQL_SECTIONS.contains(section)) {
+                        currentSection = section;
+                        builders.putIfAbsent(currentSection, new StringBuilder());
+                        continue;
+                    }
+                }
+                if (currentSection != null) {
+                    builders.get(currentSection).append(line).append('\n');
+                }
+            }
+        }
+
+        Map<String, String> sections = new LinkedHashMap<>();
+        for (Map.Entry<String, StringBuilder> entry : builders.entrySet()) {
+            sections.put(entry.getKey(), stripTrailingSemicolon(entry.getValue().toString()));
+        }
+        return sections;
+    }
+
+    private static String section(Map<String, String> sections, String name) {
+        String sql = sections.get(name);
+        if (sql == null || sql.isBlank()) {
+            throw new IllegalStateException("Missing SQL section: " + name);
+        }
+        return sql;
+    }
+
+    private static String render(String sql, Map<String, String> variables) {
+        String rendered = sql;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            rendered = rendered.replace("${" + entry.getKey() + "}", entry.getValue());
+        }
+        return rendered;
+    }
+
+    private static String stripTrailingSemicolon(String sql) {
+        String trimmed = sql.trim();
+        if (trimmed.endsWith(";")) {
+            return trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     private enum FleetRowType {

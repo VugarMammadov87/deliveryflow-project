@@ -2,7 +2,7 @@ version: 1
 
 database:
   name: DeliveryFlow ClickHouse
-  sqlalchemy_uri: clickhousedb://delivery_app:local-clickhouse-password@clickhouse:8123/delivery
+  connection: clickhouse
   expose_in_sqllab: true
 
 datasets:
