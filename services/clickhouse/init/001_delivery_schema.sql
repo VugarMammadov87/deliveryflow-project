@@ -123,6 +123,39 @@ ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(business_date)
 ORDER BY (business_date, region, warehouse_id);
 
+-- Daily transportation cost KPIs published by the Spark transportation cost batch job.
+-- The route-level grain supports management reporting by date, warehouse, region, and route.
+CREATE TABLE IF NOT EXISTS delivery.daily_transportation_cost_kpi
+(
+    business_date Date,
+    warehouse_id String,
+    region String,
+    route_id String,
+    cost_record_count UInt64,
+    total_deliveries UInt64,
+    planned_cost Float64,
+    actual_cost Float64,
+    fuel_cost Float64,
+    driver_cost Float64,
+    toll_cost Float64,
+    maintenance_cost Float64,
+    other_cost Float64,
+    total_distance_km Float64,
+    avg_vehicle_utilization_pct Float64,
+    avg_delivery_duration_minutes Float64,
+    avg_duration_variance_minutes Float64,
+    cost_variance Float64,
+    cost_variance_pct Float64,
+    cost_per_km Float64,
+    cost_per_delivery Float64,
+    fuel_cost_pct Float64,
+    published_at DateTime64(3, 'UTC'),
+    version UInt64
+)
+ENGINE = ReplacingMergeTree(version)
+PARTITION BY toYYYYMM(business_date)
+ORDER BY (business_date, warehouse_id, region, route_id);
+
 -- BI View 1: Delivery status distribution and average delay across all events.
 CREATE VIEW IF NOT EXISTS delivery.v_delivery_status_overview AS
 SELECT
@@ -182,6 +215,60 @@ SELECT
     uniqExact(delivery_id) AS delivery_count
 FROM delivery.delivery_events
 GROUP BY event_hour, event_type, region;
+
+-- BI View 6: Transportation cost and route performance for management reporting.
+-- This view keeps Superset on ClickHouse while combining batch cost KPIs with
+-- operational delay signals from the delivery event history.
+CREATE VIEW IF NOT EXISTS delivery.v_transportation_cost_performance AS
+SELECT
+    k.business_date,
+    k.warehouse_id,
+    k.region,
+    k.route_id,
+    k.cost_record_count,
+    k.total_deliveries,
+    k.planned_cost,
+    k.actual_cost,
+    k.cost_variance,
+    k.cost_variance_pct,
+    k.fuel_cost,
+    k.driver_cost,
+    k.toll_cost,
+    k.maintenance_cost,
+    k.other_cost,
+    k.total_distance_km,
+    k.cost_per_km,
+    k.cost_per_delivery,
+    k.fuel_cost_pct,
+    k.avg_vehicle_utilization_pct,
+    k.avg_delivery_duration_minutes,
+    k.avg_duration_variance_minutes,
+    coalesce(d.operational_delivery_count, 0) AS operational_delivery_count,
+    coalesce(d.delayed_delivery_count, 0) AS delayed_delivery_count,
+    coalesce(d.avg_delay_minutes, 0) AS avg_delay_minutes,
+    coalesce(d.delay_rate, 0) AS delay_rate,
+    k.cost_variance_pct + coalesce(d.delay_rate, 0) AS cost_delay_risk_score,
+    k.published_at,
+    k.version
+FROM delivery.daily_transportation_cost_kpi FINAL AS k
+LEFT JOIN
+(
+    SELECT
+        toDate(event_timestamp) AS business_date,
+        warehouse_id,
+        region,
+        route_id,
+        uniqExact(delivery_id) AS operational_delivery_count,
+        sum(delay_minutes > 0) AS delayed_delivery_count,
+        avg(delay_minutes) AS avg_delay_minutes,
+        sum(delay_minutes > 0) / greatest(count(), 1) AS delay_rate
+    FROM delivery.delivery_events
+    GROUP BY business_date, warehouse_id, region, route_id
+) AS d
+ON k.business_date = d.business_date
+    AND k.warehouse_id = d.warehouse_id
+    AND k.region = d.region
+    AND k.route_id = d.route_id;
 
 -- Operational serving schema for the independent fleet vehicle telemetry application.
 CREATE DATABASE IF NOT EXISTS fleet;

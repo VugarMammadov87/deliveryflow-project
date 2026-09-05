@@ -14,11 +14,13 @@ from producers.config import ProducerConfig, SourceDbConfig
 from producers.events import build_event, build_vehicle_telemetry_event
 from producers.source import seed_batch_source
 from producers.streaming import publish_fleet_telemetry_events, publish_stream_events
+from producers.transportation_costs import build_transportation_cost
 
 __all__ = [
     "ProducerConfig",
     "SourceDbConfig",
     "build_event",
+    "build_transportation_cost",
     "build_vehicle_telemetry_event",
     "main",
     "publish_fleet_telemetry_events",

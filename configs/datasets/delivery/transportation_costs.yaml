@@ -1,0 +1,72 @@
+# Transportation Cost Dataset Specification
+# Defines the PostgreSQL batch source that will feed the transportation cost
+# lakehouse and BI flow for the delivery application.
+dataset_id: delivery.transportation_costs
+application: delivery
+domain: transportation
+description: Route-level transportation cost source facts used for daily cost and route performance analytics.
+source:
+  type: postgres
+  connection: logistics_source
+  schema: public
+  table: transportation_costs
+  load:
+    mode: batch
+    type: snapshot
+ingestion:
+  mode: batch
+  load_type: merge
+  primary_key:
+    - cost_id
+  watermark_column: updated_at
+targets:
+  iceberg:
+    bronze_table: nessie.bronze.transportation_costs
+    silver_table: nessie.silver.transportation_costs_enriched
+    gold_table: nessie.gold.daily_transportation_cost_kpi
+  clickhouse:
+    database: delivery
+    table: daily_transportation_cost_kpi
+    view: v_transportation_cost_performance
+quality:
+  not_null:
+    - cost_id
+    - business_date
+    - delivery_id
+    - route_id
+    - vehicle_id
+    - warehouse_id
+    - region
+  non_negative:
+    - planned_distance_km
+    - actual_distance_km
+    - planned_cost
+    - fuel_cost
+    - driver_cost
+    - toll_cost
+    - maintenance_cost
+    - other_cost
+    - actual_total_cost
+    - fuel_liters
+    - delivery_count
+    - used_capacity
+    - planned_duration_minutes
+    - actual_duration_minutes
+  equality:
+    actual_total_cost:
+      formula: fuel_cost + driver_cost + toll_cost + maintenance_cost + other_cost
+  relationships:
+    delivery_id: public.delivery_plans.delivery_id
+    vehicle_id: public.vehicles.vehicle_id
+    warehouse_id: public.warehouses.warehouse_id
+schedule:
+  type: daily
+  batch_date_parameter: BATCH_DATE
+owner:
+  team: logistics-data-platform
+sla:
+  freshness_hours: 24
+criticality: medium
+bi:
+  exposed: true
+  dashboard_slug: transportation-cost-route-performance

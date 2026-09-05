@@ -30,6 +30,12 @@ datasets:
     main_dttm_col: event_hour
     temporal_columns:
       - event_hour
+  - name: Transportation Cost Performance
+    schema: delivery
+    table_name: v_transportation_cost_performance
+    main_dttm_col: business_date
+    temporal_columns:
+      - business_date
 
 charts:
   - name: Delivery Status Overview
@@ -95,6 +101,75 @@ charts:
       groupby:
         - event_type
       row_limit: 1000
+  - name: Actual Transportation Cost
+    dataset: Transportation Cost Performance
+    viz_type: big_number_total
+    params:
+      metric: actual_cost
+      subheader: Actual transportation cost
+  - name: Transportation Cost Variance
+    dataset: Transportation Cost Performance
+    viz_type: big_number_total
+    params:
+      metric: cost_variance
+      subheader: Actual cost minus planned cost
+  - name: Transportation Cost per Delivery
+    dataset: Transportation Cost Performance
+    viz_type: big_number_total
+    params:
+      metric: cost_per_delivery
+      subheader: Actual cost per delivery
+  - name: Transportation Cost Breakdown
+    dataset: Transportation Cost Performance
+    viz_type: dist_bar
+    params:
+      metrics:
+        - fuel_cost
+        - driver_cost
+        - toll_cost
+        - maintenance_cost
+        - other_cost
+      groupby:
+        - business_date
+      row_limit: 1000
+      show_legend: true
+  - name: Route Cost Performance
+    dataset: Transportation Cost Performance
+    viz_type: table
+    params:
+      metrics:
+        - actual_cost
+        - cost_per_delivery
+        - cost_variance
+      groupby:
+        - route_id
+        - region
+      row_limit: 1000
+  - name: Warehouse Region Transportation Cost
+    dataset: Transportation Cost Performance
+    viz_type: dist_bar
+    params:
+      metrics:
+        - actual_cost
+      groupby:
+        - warehouse_id
+        - region
+      row_limit: 1000
+      show_legend: true
+  - name: Route Cost vs Delay Risk
+    dataset: Transportation Cost Performance
+    viz_type: table
+    params:
+      metrics:
+        - actual_cost
+        - delay_rate
+        - avg_delay_minutes
+        - cost_delay_risk_score
+      groupby:
+        - route_id
+        - warehouse_id
+        - region
+      row_limit: 1000
 
 dashboard:
   title: DeliveryFlow Operations Dashboard
@@ -106,3 +181,25 @@ dashboard:
     - Vehicle Utilization
     - Warehouse Daily KPI
     - Hourly Delivery Event Volume
+
+dashboards:
+  - title: Transportation Cost & Route Performance
+    slug: transportation-cost-route-performance
+    published: true
+    filters:
+      - name: Business Date
+        column: business_date
+      - name: Warehouse
+        column: warehouse_id
+      - name: Region
+        column: region
+      - name: Route
+        column: route_id
+    charts:
+      - Actual Transportation Cost
+      - Transportation Cost Variance
+      - Transportation Cost per Delivery
+      - Transportation Cost Breakdown
+      - Route Cost Performance
+      - Warehouse Region Transportation Cost
+      - Route Cost vs Delay Risk

@@ -22,6 +22,8 @@ NESSIE_DB_NAME ?= nessie_metadata
 MINIO_API_PORT ?= 9000
 MINIO_CONSOLE_PORT ?= 9001
 APP ?= delivery
+DATASET ?= daily-kpi
+BATCH_DATE ?=
 PRODUCER_APP ?= $(APP)
 COMPOSE_PROJECT_NAME ?= deliveryflow
 
@@ -30,8 +32,7 @@ export PRODUCER_APP
 .PHONY: help config build pull up down clean clean-keep-images purge restart ps status health console \
 	urls url-kafka-ui url-flink url-spark url-airflow url-clickhouse url-superset url-nessie url-minio url-minio-console \
 	logs logs-kafka logs-kafka-ui logs-flink logs-spark logs-airflow logs-clickhouse logs-superset logs-postgres logs-storage logs-nessie logs-producer-continuous \
-	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning
-	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi airflow-dag-list test-e2e clean-warning docs
+	init-topics submit-flink-job import-superset-assets produce produce-stream produce-continuous stop-continuous-producer seed-batch-source spark-iceberg-test spark-daily-kpi run-batch airflow-dag-list test-e2e clean-warning docs
 
 help:
 	@echo "DeliveryFlow local platform"
@@ -62,6 +63,7 @@ help:
 	@echo "  make import-superset-assets Import Superset database, datasets, charts, and dashboard from YAML"
 	@echo "  make spark-iceberg-test  Validate Spark -> Nessie -> Iceberg -> S3"
 	@echo "  make spark-daily-kpi     Run daily Spark KPI publication"
+	@echo "  make run-batch DATASET=transportation-costs Run the Transportation Cost batch pipeline"
 	@echo "  make test-e2e            Run the local end-to-end smoke test"
 
 config:
@@ -230,6 +232,13 @@ spark-iceberg-test:
 
 spark-daily-kpi:
 	$(COMPOSE) exec -T -u 0 spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
+
+run-batch:
+ifeq ($(DATASET),transportation-costs)
+	$(COMPOSE) exec -T -u 0 -e BATCH_DATE=$(BATCH_DATE) spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/transportation_cost_kpi_job.py
+else
+	$(COMPOSE) exec -T -u 0 spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/deliveryflow/src/etl/apps/daily_kpi_job.py
+endif
 
 airflow-dag-list:
 	$(COMPOSE) exec airflow-scheduler airflow dags list

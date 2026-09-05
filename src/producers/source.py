@@ -8,6 +8,7 @@ from random import Random
 
 from producers.config import SourceDbConfig
 from producers.events import build_event
+from producers.transportation_costs import build_transportation_cost
 
 LOG = logging.getLogger("deliveryflow.producer")
 
@@ -131,6 +132,44 @@ def seed_batch_source(row_count: int, rng: Random) -> None:
                         planned_arrival,
                         payload["planned_distance_km"],
                     ),
+                )
+                transportation_cost = build_transportation_cost(index, rng)
+                cursor.execute(
+                    """
+                    INSERT INTO transportation_costs (
+                        cost_id, business_date, delivery_id, route_id, vehicle_id, warehouse_id, region,
+                        planned_distance_km, actual_distance_km, planned_cost, fuel_cost, driver_cost,
+                        toll_cost, maintenance_cost, other_cost, actual_total_cost, fuel_liters,
+                        delivery_count, vehicle_capacity, used_capacity, planned_duration_minutes,
+                        actual_duration_minutes, created_at, updated_at
+                    )
+                    VALUES (
+                        %(cost_id)s, %(business_date)s, %(delivery_id)s, %(route_id)s, %(vehicle_id)s,
+                        %(warehouse_id)s, %(region)s, %(planned_distance_km)s, %(actual_distance_km)s,
+                        %(planned_cost)s, %(fuel_cost)s, %(driver_cost)s, %(toll_cost)s,
+                        %(maintenance_cost)s, %(other_cost)s, %(actual_total_cost)s, %(fuel_liters)s,
+                        %(delivery_count)s, %(vehicle_capacity)s, %(used_capacity)s,
+                        %(planned_duration_minutes)s, %(actual_duration_minutes)s, %(created_at)s,
+                        %(updated_at)s
+                    )
+                    ON CONFLICT (cost_id) DO UPDATE SET
+                        actual_distance_km = EXCLUDED.actual_distance_km,
+                        planned_cost = EXCLUDED.planned_cost,
+                        fuel_cost = EXCLUDED.fuel_cost,
+                        driver_cost = EXCLUDED.driver_cost,
+                        toll_cost = EXCLUDED.toll_cost,
+                        maintenance_cost = EXCLUDED.maintenance_cost,
+                        other_cost = EXCLUDED.other_cost,
+                        actual_total_cost = EXCLUDED.actual_total_cost,
+                        fuel_liters = EXCLUDED.fuel_liters,
+                        delivery_count = EXCLUDED.delivery_count,
+                        vehicle_capacity = EXCLUDED.vehicle_capacity,
+                        used_capacity = EXCLUDED.used_capacity,
+                        planned_duration_minutes = EXCLUDED.planned_duration_minutes,
+                        actual_duration_minutes = EXCLUDED.actual_duration_minutes,
+                        updated_at = EXCLUDED.updated_at
+                    """,
+                    transportation_cost,
                 )
         LOG.info("seeded %s PostgreSQL source rows", row_count)
     finally:

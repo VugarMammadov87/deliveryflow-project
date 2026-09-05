@@ -17,5 +17,6 @@ RUN pip install --no-cache-dir \
 
 ENV PYTHONPATH=/opt/deliveryflow/src
 COPY --chown=airflow:0 configs/platform.yaml /opt/deliveryflow/configs/platform.yaml
+COPY --chown=airflow:0 configs/datasets /opt/deliveryflow/configs/datasets
 COPY --chown=airflow:0 src/deliveryflow_config /opt/deliveryflow/src/deliveryflow_config
 COPY --chown=airflow:0 src/etl /opt/deliveryflow/src/etl

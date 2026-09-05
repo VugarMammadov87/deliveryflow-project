@@ -13,8 +13,12 @@ streaming:
 batch:
   enabled: true
   spark_app: deliveryflow-daily-kpi
+  datasets:
+    - delivery.transportation_costs
 serving:
   clickhouse_database: delivery
 bi:
   superset: true
   dashboard_slug: deliveryflow-operations
+  planned_dashboards:
+    - transportation-cost-route-performance

@@ -12,6 +12,7 @@ make health
 make submit-flink-job
 make produce
 make spark-daily-kpi
+make run-batch DATASET=transportation-costs
 make import-superset-assets
 make console
 ```
@@ -48,6 +49,7 @@ The project has two primary data flows:
 
 - **Stream pipeline**: `Producer -> Kafka -> Flink -> ClickHouse -> Superset`
 - **Batch pipeline**: `ClickHouse/PostgreSQL -> Spark -> Iceberg/Nessie/MinIO -> ClickHouse -> Superset`
+- **Transportation cost batch pipeline**: `PostgreSQL -> Airflow -> Spark -> Iceberg Bronze/Silver/Gold -> ClickHouse -> Superset`
 When exploring DeliveryFlow, these core technologies work together across the streaming and batch layers:
 
 Primary service roles:
@@ -125,6 +127,7 @@ make health
 make submit-flink-job
 make produce
 make spark-daily-kpi
+make run-batch DATASET=transportation-costs
 make import-superset-assets
 make console
 ```
@@ -139,7 +142,8 @@ flowchart LR
     flink["Flink DataStream Job<br/>Java"]
     clickhouse["ClickHouse<br/>Serving Layer"]
     spark["Spark Daily KPI Job<br/>PySpark"]
-    iceberg["Apache Iceberg Tables<br/>bronze / gold"]
+    transportSpark["Spark Transportation Cost Job<br/>PySpark"]
+    iceberg["Apache Iceberg Tables<br/>bronze / silver / gold"]
     nessie["Nessie<br/>Iceberg Catalog"]
     minio["MinIO<br/>S3-compatible Storage"]
     airflow["Airflow<br/>Batch Orchestration"]
@@ -150,11 +154,15 @@ flowchart LR
     kafka --> flink
     flink --> clickhouse
     airflow --> spark
+    airflow --> transportSpark
     clickhouse --> spark
+    postgres --> transportSpark
     spark --> iceberg
+    transportSpark --> iceberg
     iceberg --> nessie
     iceberg --> minio
     spark --> clickhouse
+    transportSpark --> clickhouse
     clickhouse --> superset
 ```
 
@@ -583,6 +591,64 @@ To verify KPI results:
 docker compose exec clickhouse clickhouse-client --query "SELECT * FROM delivery.daily_delivery_kpi LIMIT 10"
 ```
 
+## Step 9b: Run the Transportation Cost Batch Flow
+
+Transportation Cost batch job:
+
+```powershell
+make run-batch DATASET=transportation-costs
+```
+
+For a specific business date:
+
+```powershell
+make run-batch DATASET=transportation-costs BATCH_DATE=2026-09-04
+```
+
+This runs the full Dashboard 6 batch ETL path:
+
+```text
+Synthetic Transportation Data
+        |
+        v
+PostgreSQL Source
+        |
+        v
+Airflow / Spark submit
+        |
+        v
+Iceberg Bronze
+        |
+        v
+Iceberg Silver
+        |
+        v
+Iceberg Gold
+        |
+        v
+ClickHouse Serving
+        |
+        v
+Superset Dataset
+        |
+        v
+Transportation Cost & Route Performance
+```
+
+The Spark job reads `public.transportation_costs`, validates cost data quality, writes `nessie.bronze.transportation_costs`, `nessie.silver.transportation_costs_enriched`, and `nessie.gold.daily_transportation_cost_kpi`, then publishes `delivery.daily_transportation_cost_kpi`.
+
+To verify serving rows:
+
+```powershell
+docker compose exec clickhouse clickhouse-client --query "SELECT * FROM delivery.v_transportation_cost_performance LIMIT 10"
+```
+
+Detailed runbook:
+
+```text
+docs/transportation-cost-flow.md
+```
+
 ## Step 10: Data Sources for the Superset Dashboard
 
 Superset URL:
@@ -608,9 +674,12 @@ This command creates or updates database, dataset, chart, and dashboard objects 
 This import means the dashboard does not need to be created manually in the Superset UI. The importer manages:
 
 - `DeliveryFlow ClickHouse` database connection.
-- Five datasets based on five ClickHouse views.
-- Five statistical charts.
+- Delivery operations datasets based on ClickHouse views.
+- Transportation cost performance dataset based on `delivery.v_transportation_cost_performance`.
+- Delivery operations statistical charts.
+- Transportation cost management charts.
 - The `DeliveryFlow Operations Dashboard` dashboard.
+- The `Transportation Cost & Route Performance` dashboard.
 - Adhoc metric formatting for chart metrics. For example, the `event_count` column is written as `SUM(event_count)` and `delay_rate` as `AVG(delay_rate)` in the chart.
 - Datetime metadata for timeseries charts. In the `Hourly Delivery Event Volume` chart, `event_hour` is both the dataset temporal column and the chart `x_axis` / `granularity_sqla` value.
 
@@ -621,6 +690,7 @@ Prepared views for the dashboard:
 - `delivery.v_vehicle_utilization`
 - `delivery.v_warehouse_daily_kpi`
 - `delivery.v_delivery_event_volume`
+- `delivery.v_transportation_cost_performance`
 
 To verify the views:
 
@@ -801,6 +871,30 @@ Runs the daily KPI batch job. Run it after ClickHouse contains `delivery_events`
 make spark-daily-kpi
 ```
 
+### `make run-batch`
+
+Runs a metadata-backed batch dataset job.
+
+Default behavior runs the existing delivery daily KPI job:
+
+```powershell
+make run-batch
+```
+
+Transportation Cost batch flow:
+
+```powershell
+make run-batch DATASET=transportation-costs
+```
+
+Optional date-scoped rerun:
+
+```powershell
+make run-batch DATASET=transportation-costs BATCH_DATE=2026-09-04
+```
+
+This command writes the transportation cost Bronze, Silver, and Gold Iceberg tables and publishes the ClickHouse serving table used by Dashboard 6.
+
 ### `make import-superset-assets`
 
 Creates or updates Superset objects from the repository YAML file.
@@ -822,7 +916,7 @@ YAML source of truth:
 configs/superset/deliveryflow_bi.yaml
 ```
 
-The import creates the `DeliveryFlow ClickHouse` database connection, five datasets, five charts, and the `DeliveryFlow Operations Dashboard` in Superset.
+The import creates the `DeliveryFlow ClickHouse` database connection, delivery operations assets, and the `Transportation Cost & Route Performance` dashboard in Superset.
 
 The importer also normalizes Superset chart parameters:
 
@@ -933,6 +1027,7 @@ make submit-flink-job
 make produce
 make spark-iceberg-test
 make spark-daily-kpi
+make run-batch DATASET=transportation-costs
 make import-superset-assets
 make console
 ```
@@ -1074,6 +1169,7 @@ Clean initialization scripts execute on first boot, and all tables match current
 For deeper reading:
 
 - `docs/application-workflow.md`: application, generator, stream, and batch workflow.
+- `docs/transportation-cost-flow.md`: Dashboard 6 transportation cost batch flow.
 - `docs/postgres-source-tables.md`: PostgreSQL source tables and inspection commands.
 - `docs/superset-serving.md`: Superset dashboard strategy and five reports.
 - `docs/architecture-decisions.md`: service choices and ADRs.

@@ -239,6 +239,9 @@ def chart_id(client: SupersetClient, dataset_ids: dict[str, int], spec: dict[str
 def normalize_chart_params(params: dict[str, Any], dataset: dict[str, Any]) -> dict[str, Any]:
     """Convert readable YAML chart params into Superset API-compatible params."""
     normalized = dict(params)
+    metric = normalized.get("metric")
+    if isinstance(metric, str):
+        normalized["metric"] = adhoc_metric(metric, dataset)
     metrics = normalized.get("metrics")
     if isinstance(metrics, list):
         normalized["metrics"] = [
@@ -287,14 +290,58 @@ def default_metric_aggregate(column_name: str) -> str:
     return "SUM"
 
 
+def dashboard_specs(asset_spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return dashboard specs from legacy single-dashboard and multi-dashboard YAML shapes."""
+    specs: list[dict[str, Any]] = []
+    legacy = asset_spec.get("dashboard")
+    if isinstance(legacy, dict):
+        specs.append(legacy)
+    for spec in asset_spec.get("dashboards", []):
+        if not isinstance(spec, dict):
+            raise ValueError("Each dashboards item must be an object")
+        if spec.get("title") not in {item.get("title") for item in specs}:
+            specs.append(spec)
+    return specs
+
+
+def build_native_filter_configuration(filter_specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build Superset native filter configuration from declarative YAML filters."""
+    filters: list[dict[str, Any]] = []
+    for spec in filter_specs:
+        col = spec["column"]
+        name = spec.get("name", col.replace("_", " ").title())
+        is_temporal = col in ("business_date", "event_date", "event_hour") or "date" in col
+        filter_type = "filter_time" if is_temporal else "filter_select"
+        filters.append(
+            {
+                "id": f"NATIVE_FILTER-{col}",
+                "name": name,
+                "filterType": filter_type,
+                "targets": [{"column": {"name": col}}],
+                "defaultDataMask": {},
+                "controlValues": {
+                    "enableEmptyFilter": False,
+                    "multiSelect": True,
+                },
+                "cascadeParentIds": [],
+                "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+                "type": "NATIVE_FILTER",
+            }
+        )
+    return filters
+
+
 def dashboard_id(client: SupersetClient, chart_ids: dict[str, int], spec: dict[str, Any]) -> int:
     """Create or update the dashboard shell and its layout JSON."""
     existing = find_by_name(client.get_all("/api/v1/dashboard/"), ("dashboard_title",), spec["title"])
     metadata = {
+    metadata: dict[str, Any] = {
         "timed_refresh_immune_slices": [],
         "expanded_slices": {},
         "refresh_frequency": 0,
     }
+    if spec.get("filters"):
+        metadata["native_filter_configuration"] = build_native_filter_configuration(spec["filters"])
     payload = {
         "dashboard_title": spec["title"],
         "slug": spec["slug"],
@@ -302,13 +349,14 @@ def dashboard_id(client: SupersetClient, chart_ids: dict[str, int], spec: dict[s
         "json_metadata": json.dumps(metadata, separators=(",", ":")),
         "position_json": json.dumps(build_position_json(spec["charts"], chart_ids), separators=(",", ":")),
     }
+    dashboard_chart_ids = {name: chart_ids[name] for name in spec["charts"] if name in chart_ids}
     if existing:
         dashboard_pk = int(existing["id"])
         client.update(f"/api/v1/dashboard/{dashboard_pk}", payload)
-        attach_charts_to_dashboard(client, dashboard_pk, chart_ids)
+        attach_charts_to_dashboard(client, dashboard_pk, dashboard_chart_ids)
         return dashboard_pk
     dashboard_pk = int(client.create("/api/v1/dashboard/", payload)["id"])
-    attach_charts_to_dashboard(client, dashboard_pk, chart_ids)
+    attach_charts_to_dashboard(client, dashboard_pk, dashboard_chart_ids)
     return dashboard_pk
 
 
@@ -354,9 +402,9 @@ def main() -> int:
     db_id = database_id(client, asset_spec["database"])
     dataset_ids = {spec["name"]: dataset_id(client, db_id, spec) for spec in asset_spec["datasets"]}
     chart_ids = {spec["name"]: chart_id(client, dataset_ids, spec) for spec in asset_spec["charts"]}
-    dash_id = dashboard_id(client, chart_ids, asset_spec["dashboard"])
+    dashboard_ids = [dashboard_id(client, chart_ids, spec) for spec in dashboard_specs(asset_spec)]
 
-    print(f"SUPERSET_BI_AS_CODE_IMPORT_OK dashboard_id={dash_id}")
+    print(f"SUPERSET_BI_AS_CODE_IMPORT_OK dashboard_ids={dashboard_ids}")
     return 0
 
 
